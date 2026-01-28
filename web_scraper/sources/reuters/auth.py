@@ -36,6 +36,41 @@ class AuthStatus:
     message: Optional[str] = None
 
 
+def _dismiss_cookie_dialog(page: Page) -> None:
+    """Dismiss cookie consent dialog if present."""
+    try:
+        # Try common cookie consent button selectors
+        selectors = [
+            '#onetrust-accept-btn-handler',  # OneTrust cookie banner (Reuters uses this)
+            'button#onetrust-accept-btn-handler',
+            'button:has-text("Accept All Cookies")',
+            'button:has-text("Accept All")',
+            'button:has-text("Accept all")',
+            'button:has-text("I Accept")',
+            'button:has-text("Accept")',
+            'button[id*="accept"]',
+            'button[class*="accept"]',
+        ]
+        for selector in selectors:
+            try:
+                btn = page.query_selector(selector)
+                if btn and btn.is_visible():
+                    btn.click()
+                    time.sleep(1)
+                    return
+            except Exception:
+                continue
+
+        # If no button found, try to close the banner by clicking outside or pressing Escape
+        try:
+            page.keyboard.press("Escape")
+            time.sleep(0.5)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def check_login_status(page: Page) -> AuthStatus:
     """Check if user is logged in by visiting homepage.
 
@@ -97,9 +132,14 @@ def perform_login(
     Returns:
         AuthStatus indicating login result.
     """
-    with create_browser(headless=headless, source=SOURCE_NAME) as page:
+    # Don't load old storage state when logging in fresh
+    with create_browser(headless=headless, source=SOURCE_NAME, use_storage_state=False) as page:
         try:
             page.goto(SIGN_IN_URL)
+            time.sleep(2)
+
+            # Handle cookie consent dialog if present
+            _dismiss_cookie_dialog(page)
 
             # Step 1: Enter email
             page.wait_for_selector(Selectors.EMAIL_INPUT, timeout=30000)
@@ -172,9 +212,14 @@ def interactive_login(headless: bool = False) -> AuthStatus:
     Returns:
         AuthStatus indicating login result.
     """
-    with create_browser(headless=headless, source=SOURCE_NAME) as page:
+    # Don't load old storage state when logging in fresh
+    with create_browser(headless=headless, source=SOURCE_NAME, use_storage_state=False) as page:
         try:
             page.goto(SIGN_IN_URL)
+            time.sleep(2)
+
+            # Handle cookie consent dialog if present
+            _dismiss_cookie_dialog(page)
 
             print("Please complete login in the browser window...")
             print("Waiting for login to complete (timeout: 5 minutes)...")
@@ -184,15 +229,26 @@ def interactive_login(headless: bool = False) -> AuthStatus:
             start_time = time.time()
 
             while time.time() - start_time < timeout:
-                current_url = page.url
-                page_content = page.content().lower()
+                try:
+                    current_url = page.url
 
-                not_sign_in = "/sign-in" not in current_url and "/account/" not in current_url
-                not_captcha = "captcha" not in current_url and "captcha-delivery" not in page_content
-                on_reuters = "reuters.com" in current_url
+                    # Check URL first (safer than content)
+                    not_sign_in = "/sign-in" not in current_url and "/account/" not in current_url
+                    on_reuters = "reuters.com" in current_url
 
-                if not_sign_in and not_captcha and on_reuters:
-                    break
+                    # Only check content if URL looks good
+                    if not_sign_in and on_reuters:
+                        try:
+                            page_content = page.content().lower()
+                            not_captcha = "captcha" not in current_url and "captcha-delivery" not in page_content
+                            if not_captcha:
+                                break
+                        except Exception:
+                            # Page still navigating, wait
+                            pass
+                except Exception:
+                    # Page navigating, ignore
+                    pass
 
                 time.sleep(1)
             else:

@@ -100,6 +100,7 @@ def create_browser(
     headless: bool = True,
     source: str = "default",
     use_chrome: bool = True,
+    use_storage_state: bool = True,
 ) -> Iterator[Page]:
     """Create and manage browser lifecycle with Playwright (sync).
 
@@ -107,6 +108,7 @@ def create_browser(
         headless: Run browser in headless mode.
         source: Source name for data isolation.
         use_chrome: Use real Chrome browser (better anti-detection).
+        use_storage_state: Load saved browser state (cookies + localStorage).
 
     Yields:
         Playwright Page instance.
@@ -123,11 +125,19 @@ def create_browser(
             "--window-size=1920,1080",
         ]
 
+        # Add new headless flag for Chrome 109+ (harder to detect)
+        if headless:
+            launch_args.append("--headless=new")
+
         browser = p.chromium.launch(
             headless=headless,
             channel="chrome" if use_chrome else None,
             args=launch_args,
         )
+
+        # Load storage state if available (cookies + localStorage)
+        state_file = get_state_path(source)
+        storage_state = str(state_file) if use_storage_state and state_file.exists() else None
 
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
@@ -135,6 +145,7 @@ def create_browser(
             locale="en-US",
             timezone_id="America/New_York",
             permissions=["geolocation"],
+            storage_state=storage_state,
         )
 
         page = context.new_page()

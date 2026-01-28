@@ -1,289 +1,231 @@
-"""Unified MCP Server for web scraping tools."""
+"""MCP Server for news search - Reuters and WSJ."""
 
-import asyncio
+import time
 from typing import List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-# Initialize MCP server
 mcp = FastMCP(
-    name="web-scraper",
-    instructions="Unified web scraping tools for Reuters and Xiaohongshu. "
-                 "Use reuters_* tools for news, xhs_* tools for social content.",
+    name="news-search",
+    instructions="Search news from Reuters and Wall Street Journal. "
+                 "Use reuters_search for Reuters news, wsj_search for WSJ news. "
+                 "Both tools return standardized article data with optional full content.",
 )
 
-
-def _run_async(coro):
-    """Run async function in sync context."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return asyncio.run(coro)
-
-
-# ==================== Reuters Tools ====================
 
 @mcp.tool()
 def reuters_search(
     query: str,
-    max_results: int = 10,
+    limit: int = 10,
+    fetch_content: bool = True,
     section: Optional[str] = None,
-    sort_by: str = "relevance",
+    date_range: Optional[str] = None,
 ) -> List[dict]:
     """Search Reuters for news articles.
 
     Args:
-        query: Search query string (e.g., "Fed interest rate", "climate change")
-        max_results: Maximum number of results to return (default: 10, max: 50)
-        section: Filter by section slug (e.g., "business", "world/china")
-        sort_by: Sort order - "relevance" or "date" (default: "relevance")
+        query: Search keywords (e.g., "Fed interest rate", "Tesla earnings")
+        limit: Maximum number of articles (default: 10, max: 30)
+        fetch_content: Whether to fetch full article content (default: True)
+        section: Filter by section (e.g., "business", "world", "technology")
+        date_range: Filter by date (past_24_hours, past_week, past_month, past_year)
 
     Returns:
-        List of search results with title, summary, url, published_at, and category
+        List of articles. Each article contains:
+        - title: Article headline
+        - url: Full article URL
+        - published_at: Publication time
+        - author: Author name (if available)
+        - summary: Article summary
+        - content: Full article content in markdown (only if fetch_content=True)
+        - tags: Article tags (only if fetch_content=True)
 
     Example:
-        reuters_search(query="Federal Reserve", max_results=5, section="business")
+        reuters_search("Federal Reserve", limit=5)
+        reuters_search("climate change", limit=10, fetch_content=False)
     """
-    from .sources.reuters.scrapers import SearchScraper
-    from .core.exceptions import NotLoggedInError, RateLimitedError
+    from .sources.reuters.client import ReutersClient
 
-    max_results = min(max_results, 50)
+    limit = min(limit, 30)
 
     try:
-        scraper = SearchScraper(headless=True)
-        results = scraper.search(
+        client = ReutersClient()
+
+        # Search
+        results = client.search(
             query=query,
-            max_results=max_results,
+            max_results=limit,
             section=section,
-            sort_by=sort_by,
+            date_range=date_range,
         )
-        return [r.model_dump() for r in results]
-    except NotLoggedInError as e:
-        return [{"error": str(e), "action": "Run 'scraper reuters login -i' to authenticate"}]
-    except RateLimitedError as e:
-        return [{"error": str(e), "action": "Wait and try again later"}]
+
+        if not results:
+            return [{"error": "No results found or API blocked", "action": "Run 'scraper reuters login' to refresh session"}]
+
+        articles = []
+        for i, r in enumerate(results):
+            article = {
+                "title": r.title,
+                "url": r.url,
+                "published_at": r.published_at,
+                "author": r.author,
+                "summary": r.summary,
+                "category": r.category,
+            }
+
+            # Fetch full content if requested
+            if fetch_content and r.url:
+                try:
+                    full = client.fetch_article(r.url)
+                    if full:
+                        article["content"] = full.content_markdown
+                        article["tags"] = full.tags
+                    if i < len(results) - 1:
+                        time.sleep(0.5)
+                except Exception:
+                    pass
+
+            articles.append(article)
+
+        return articles
+
     except Exception as e:
         return [{"error": f"Search failed: {str(e)}"}]
 
 
 @mcp.tool()
-def reuters_fetch_article(url: str) -> dict:
-    """Fetch full article content from Reuters.
-
-    Args:
-        url: Article URL (absolute or relative, e.g., "/business/us-economy-2024-01-15/")
+def wsj_get_search_options() -> dict:
+    """Get available search filter options for WSJ.
 
     Returns:
-        Article object with title, author, published_at, content_markdown, images, and tags
+        Dictionary containing available options for:
+        - sort: Sorting options (newest, oldest, relevance)
+        - date_range: Date range filters (day, week, month, year, all)
+        - sources: Content source types (articles, video, audio, livecoverage, buyside)
 
     Example:
-        reuters_fetch_article(url="/world/china/china-economy-growth-2024/")
+        options = wsj_get_search_options()
+        # Then use with wsj_search:
+        # wsj_search("Tesla", sort="newest", date_range="week", sources=["articles"])
     """
-    from .sources.reuters.scrapers import ArticleScraper
-    from .core.exceptions import NotLoggedInError, RateLimitedError, ContentNotFoundError, PaywallError
+    from .sources.wsj.config import SEARCH_SORT, SEARCH_DATE_RANGE, SEARCH_SOURCES
 
-    try:
-        scraper = ArticleScraper(headless=True)
-        article = scraper.fetch(url)
-        return article.model_dump()
-    except NotLoggedInError as e:
-        return {"error": str(e), "action": "Run 'scraper reuters login -i' to authenticate"}
-    except ContentNotFoundError as e:
-        return {"error": str(e)}
-    except PaywallError as e:
-        return {"error": str(e), "note": "Article requires subscription"}
-    except RateLimitedError as e:
-        return {"error": str(e), "action": "Wait and try again later"}
-    except Exception as e:
-        return {"error": f"Failed to fetch article: {str(e)}"}
+    return {
+        "sort": {
+            "options": list(SEARCH_SORT.keys()),
+            "default": "newest",
+            "description": "Sort order for search results",
+        },
+        "date_range": {
+            "options": list(SEARCH_DATE_RANGE.keys()),
+            "default": "all",
+            "description": "Filter by publication date",
+        },
+        "sources": {
+            "options": list(SEARCH_SOURCES.keys()),
+            "default": "all sources",
+            "description": "Filter by content type (can specify multiple)",
+        },
+    }
 
 
 @mcp.tool()
-def reuters_list_section(
-    section: str,
-    max_articles: int = 10,
+def wsj_search(
+    query: str,
+    limit: int = 10,
+    fetch_content: bool = True,
+    pages: int = 1,
+    sort: Optional[str] = None,
+    date_range: Optional[str] = None,
+    sources: Optional[List[str]] = None,
 ) -> List[dict]:
-    """List latest articles from a Reuters section.
+    """Search Wall Street Journal for news articles.
 
     Args:
-        section: Section slug (use reuters_get_sections to see available sections)
-                 Examples: "world", "world/china", "business", "technology"
-        max_articles: Maximum number of articles to return (default: 10, max: 30)
+        query: Search keywords (e.g., "Fed interest rate", "Nvidia")
+        limit: Maximum number of articles (default: 10, max: 30)
+        fetch_content: Whether to fetch full article content (default: True)
+        pages: Number of search result pages (default: 1, max: 3)
+        sort: Sort order - "newest", "oldest", "relevance" (default: "newest")
+        date_range: Date filter - "day", "week", "month", "year", "all" (default: "all")
+        sources: Content sources - list of "articles", "video", "audio", "livecoverage", "buyside"
+                 (default: all sources)
 
     Returns:
-        List of articles with title, summary, url, published_at, and thumbnail_url
+        List of articles. Each article contains:
+        - title: Article headline
+        - url: Full article URL
+        - published_at: Publication time
+        - author: Author name (if available)
+        - category: Article category
+        - content: Full article content (only if fetch_content=True)
+        - is_paywalled: Whether article is behind paywall (only if fetch_content=True)
 
     Example:
-        reuters_list_section(section="world/china", max_articles=5)
+        wsj_search("Federal Reserve", limit=5)
+        wsj_search("Tesla", limit=20, fetch_content=False)
+        wsj_search("Nvidia", sort="newest", date_range="week", sources=["articles"])
     """
-    from .sources.reuters.scrapers import SectionScraper
-    from .core.exceptions import NotLoggedInError, RateLimitedError
+    from .sources.wsj.scrapers import SearchScraper, ArticleScraper
 
-    max_articles = min(max_articles, 30)
+    limit = min(limit, 30)
+    pages = min(pages, 3)
 
     try:
-        scraper = SectionScraper(headless=True)
-        articles = scraper.list_articles(section=section, max_articles=max_articles)
-        return [a.model_dump() for a in articles]
-    except NotLoggedInError as e:
-        return [{"error": str(e), "action": "Run 'scraper reuters login -i' to authenticate"}]
-    except ValueError as e:
-        return [{"error": str(e)}]
-    except RateLimitedError as e:
-        return [{"error": str(e), "action": "Wait and try again later"}]
-    except Exception as e:
-        return [{"error": f"Failed to list section: {str(e)}"}]
-
-
-@mcp.tool()
-def reuters_get_sections() -> List[dict]:
-    """Get all available Reuters sections/categories.
-
-    Returns:
-        List of sections with name, slug, and url
-    """
-    from .sources.reuters.scrapers import SectionScraper
-
-    scraper = SectionScraper(headless=True)
-    sections = scraper.get_sections()
-    return [s.model_dump() for s in sections]
-
-
-# ==================== Xiaohongshu Tools ====================
-
-@mcp.tool()
-def xhs_explore(
-    category: str = "推荐",
-    limit: int = 20,
-) -> dict:
-    """Explore notes from Xiaohongshu homepage.
-
-    Args:
-        category: Category to explore (e.g., "推荐", "美食", "穿搭", "旅行")
-        limit: Maximum number of notes to collect (default: 20, max: 50)
-
-    Returns:
-        ExploreResult with category and list of note cards
-
-    Example:
-        xhs_explore(category="美食", limit=10)
-    """
-    from .core.browser import get_browser
-    from .sources.xiaohongshu.config import SOURCE_NAME, CATEGORY_CHANNELS
-    from .sources.xiaohongshu.scrapers import ExploreScraper
-
-    if category not in CATEGORY_CHANNELS:
-        return {"error": f"Invalid category: {category}", "valid_categories": list(CATEGORY_CHANNELS.keys())}
-
-    limit = min(limit, 50)
-
-    async def _explore():
-        async with get_browser(SOURCE_NAME, headless=True) as browser:
-            scraper = ExploreScraper(browser)
-            return await scraper.scrape(category=category, limit=limit)
+        search_scraper = SearchScraper()
+    except FileNotFoundError:
+        return [{"error": "Cookies not found", "action": "Run 'scraper wsj import-cookies <path>' to import cookies"}]
 
     try:
-        result = _run_async(_explore())
-        return result.model_dump()
+        # Search with filters
+        results = search_scraper.search_multi_pages(
+            query=query,
+            max_pages=pages,
+            sort=sort,
+            date_range=date_range,
+            sources=sources,
+        )
+
+        if not results:
+            return [{"error": "No results found"}]
+
+        results = results[:limit]
+        articles = []
+
+        # Optionally fetch full content
+        article_scraper = None
+        if fetch_content:
+            try:
+                article_scraper = ArticleScraper()
+            except FileNotFoundError:
+                pass
+
+        for i, r in enumerate(results):
+            article = {
+                "title": r.headline,
+                "url": r.url,
+                "published_at": r.timestamp.isoformat() if r.timestamp else None,
+                "author": r.author,
+                "category": r.category,
+            }
+
+            # Fetch full content if requested
+            if fetch_content and article_scraper and r.url:
+                try:
+                    full = article_scraper.scrape(r.url)
+                    article["content"] = full.content
+                    article["is_paywalled"] = full.is_paywalled
+                    if i < len(results) - 1:
+                        time.sleep(1.0)
+                except Exception:
+                    pass
+
+            articles.append(article)
+
+        return articles
+
     except Exception as e:
-        return {"error": f"Explore failed: {str(e)}"}
-
-
-@mcp.tool()
-def xhs_search(
-    keyword: str,
-    search_type: str = "all",
-    limit: int = 20,
-) -> dict:
-    """Search for notes on Xiaohongshu.
-
-    Args:
-        keyword: Search keyword
-        search_type: Type of search - "all", "video", "image", "user" (default: "all")
-        limit: Maximum number of results (default: 20, max: 50)
-
-    Returns:
-        SearchResult with keyword, total count, and list of note cards
-
-    Example:
-        xhs_search(keyword="美食推荐", search_type="video", limit=10)
-    """
-    from .core.browser import get_browser
-    from .sources.xiaohongshu.config import SOURCE_NAME, SEARCH_TYPES
-    from .sources.xiaohongshu.scrapers import SearchScraper
-
-    if search_type not in SEARCH_TYPES:
-        return {"error": f"Invalid search type: {search_type}", "valid_types": list(SEARCH_TYPES.keys())}
-
-    limit = min(limit, 50)
-
-    async def _search():
-        async with get_browser(SOURCE_NAME, headless=True) as browser:
-            scraper = SearchScraper(browser)
-            return await scraper.scrape(keyword=keyword, search_type=search_type, limit=limit)
-
-    try:
-        result = _run_async(_search())
-        return result.model_dump()
-    except Exception as e:
-        return {"error": f"Search failed: {str(e)}"}
-
-
-@mcp.tool()
-def xhs_fetch_note(
-    note_id: str,
-    xsec_token: str = "",
-) -> dict:
-    """Fetch a specific note from Xiaohongshu.
-
-    Args:
-        note_id: Note ID to fetch
-        xsec_token: Security token (optional, may be required for some notes)
-
-    Returns:
-        Note object with full content, images, tags, and engagement stats
-
-    Example:
-        xhs_fetch_note(note_id="abc123", xsec_token="token_from_explore")
-    """
-    from .core.browser import get_browser
-    from .sources.xiaohongshu.config import SOURCE_NAME
-    from .sources.xiaohongshu.scrapers import NoteScraper
-
-    async def _fetch():
-        async with get_browser(SOURCE_NAME, headless=True) as browser:
-            scraper = NoteScraper(browser)
-            note, _ = await scraper.scrape(note_id=note_id, xsec_token=xsec_token, silent=True)
-            return note
-
-    try:
-        result = _run_async(_fetch())
-        if result:
-            return result.model_dump()
-        else:
-            return {"error": "Failed to fetch note", "note_id": note_id}
-    except Exception as e:
-        return {"error": f"Fetch failed: {str(e)}"}
-
-
-@mcp.tool()
-def xhs_get_categories() -> List[dict]:
-    """Get available Xiaohongshu explore categories.
-
-    Returns:
-        List of categories with name and channel_id
-    """
-    from .sources.xiaohongshu.config import CATEGORY_CHANNELS
-
-    return [{"name": name, "channel_id": channel_id} for name, channel_id in CATEGORY_CHANNELS.items()]
+        return [{"error": f"Search failed: {str(e)}"}]
 
 
 def main():

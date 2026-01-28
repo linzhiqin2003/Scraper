@@ -53,12 +53,8 @@ class BaseScraper(ABC):
                 f"Not logged in. Run 'scraper {self.SOURCE_NAME} login' first."
             )
 
+        # storage_state is loaded automatically in create_browser
         with create_browser(headless=self.headless, source=self.SOURCE_NAME) as page:
-            # Navigate to base URL first for cookies
-            if self.BASE_URL:
-                page.goto(self.BASE_URL)
-            load_cookies_sync(page, self.SOURCE_NAME)
-            page.reload()
             yield page
 
     def check_rate_limit(self, page: Page) -> bool:

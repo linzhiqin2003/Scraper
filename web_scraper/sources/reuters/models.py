@@ -13,6 +13,8 @@ class SearchResult(BaseModel):
     url: str = Field(description="Article URL (relative or absolute)")
     published_at: Optional[str] = Field(default=None, description="Publication timestamp")
     category: Optional[str] = Field(default=None, description="Article category/section")
+    author: Optional[str] = Field(default=None, description="Article author(s)")
+    thumbnail: Optional[str] = Field(default=None, description="Thumbnail image URL")
 
 
 class ArticleImage(BaseModel):

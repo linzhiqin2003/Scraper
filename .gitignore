@@ -49,6 +49,7 @@ exports/
 # Session files (contain sensitive cookies)
 browser_state.json
 cookies.json
+cookies.txt
 
 # OS
 .DS_Store

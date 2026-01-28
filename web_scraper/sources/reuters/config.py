@@ -1,14 +1,32 @@
 """Configuration and selectors for Reuters scraper."""
 
+from pathlib import Path
 from typing import Dict
 
 # Source identifier
 SOURCE_NAME = "reuters"
 
+# Paths
+DATA_DIR = Path.home() / ".web_scraper" / "reuters"
+STATE_FILE = DATA_DIR / "browser_state.json"
+
 # URLs
 BASE_URL = "https://www.reuters.com"
 SIGN_IN_URL = f"{BASE_URL}/account/sign-in/"
 SEARCH_URL = f"{BASE_URL}/site-search/"
+
+# API endpoints (Arc Publishing)
+API_BASE = f"{BASE_URL}/pf/api/v3/content/fetch/"
+SEARCH_API = f"{API_BASE}articles-by-search-v2"
+SECTION_API = f"{API_BASE}articles-by-section-alias-or-id-v1"
+
+# Default HTTP headers
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
 
 # Valid search filter values (from Reuters search page)
 VALID_SECTIONS = {
