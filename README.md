@@ -1,15 +1,16 @@
 # Web Scraper
 
-统一爬虫框架，整合 Reuters、WSJ 新闻和小红书内容爬取，支持 CLI 和 MCP Server 两种使用方式。
+统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎和小红书内容爬取，支持 CLI 和 MCP Server 两种使用方式。
 
 ## Features
 
-- **多源支持**: Reuters 新闻、Wall Street Journal、小红书笔记
-- **统一 CLI**: `scraper <source> <command>` 子命令模式
-- **MCP Server**: 可作为 LLM Agent 工具使用
-- **反检测**: Playwright + 真实 Chrome 浏览器 + Stealth 脚本
+- **6 源支持**: Reuters、WSJ、Google Scholar、Weibo、Zhihu、Xiaohongshu
+- **统一 CLI**: `scraper <source> <command>` 子命令模式，所有源命令标准化
+- **MCP Server**: 可作为 LLM Agent 工具使用（`scraper-mcp`）
+- **反检测**: Playwright + 真实 Chrome + Stealth 脚本 + UA 池 + 代理池
 - **会话持久化**: Cookie 自动保存，支持断点续爬
-- **API 优先**: Reuters 使用 Arc Publishing API（更快），失败时回退到 Playwright
+- **API 优先**: Reuters 使用 Arc API，Zhihu 使用纯 Python 签名绕过
+- **统一输出**: Rich 表格渲染，统一色彩规范
 
 ## Installation
 
@@ -24,7 +25,7 @@ poetry install
 # Or with pip
 pip install -e .
 
-# Install Playwright browsers
+# Install Playwright browsers (optional, for browser-based sources)
 playwright install chromium
 ```
 
@@ -36,9 +37,6 @@ playwright install chromium
 # Login (interactive mode for CAPTCHA)
 scraper reuters login -i
 
-# Or import browser state from Chrome DevTools
-scraper reuters import-state browser_state.json
-
 # Check login status
 scraper reuters status
 
@@ -46,36 +44,107 @@ scraper reuters status
 scraper reuters search "Federal Reserve" -n 10
 
 # Browse section
-scraper reuters section world/china -n 20
+scraper reuters browse world/china -n 20
 
-# Fetch article
+# Fetch full article
 scraper reuters fetch "https://www.reuters.com/world/article-url/"
 ```
 
 ### WSJ (Wall Street Journal)
 
 ```bash
-# Import cookies from browser (cookies.txt extension)
+# Import cookies from browser
 scraper wsj import-cookies ~/Downloads/cookies.txt
 
 # Check cookies validity
-scraper wsj check-cookies
+scraper wsj status
 
-# List RSS categories
-scraper wsj categories
+# Browse RSS feed articles
+scraper wsj browse -c technology -n 20
 
-# Get RSS feed articles
-scraper wsj feeds -c technology -n 20
+# Browse with full content
+scraper wsj browse -c markets -n 5 --no-shallow
 
 # Search articles with filters
 scraper wsj search "Nvidia" --sort newest --date week --sources articles
-scraper wsj search "Tesla" -p 2 --shallow  # Only show URLs
 
 # Fetch full article
 scraper wsj fetch "https://www.wsj.com/articles/..."
+```
 
-# RSS + full content scraping
-scraper wsj scrape-feeds -c markets -n 5
+### Google Scholar
+
+```bash
+# Search papers (results only)
+scraper scholar search "transformer attention" -n 10 --shallow
+
+# Search + fetch full content
+scraper scholar search "transformer attention" -n 5
+
+# Search with filters
+scraper scholar search "machine learning" --sort date --year-from 2023
+
+# Fetch single article
+scraper scholar fetch "https://arxiv.org/abs/..."
+
+# Import Google cookies (optional, reduces CAPTCHA)
+scraper scholar import-cookies ~/Downloads/google_cookies.txt
+
+# Show filter options
+scraper scholar options
+```
+
+### Zhihu (知乎)
+
+```bash
+# Login (interactive browser)
+scraper zhihu login
+
+# Or import cookies
+scraper zhihu import-cookies ~/Downloads/cookies.json
+
+# Check login status
+scraper zhihu status
+
+# Search content (auto strategy: pure API → browser API → intercept → DOM)
+scraper zhihu search "transformer" -n 10
+
+# Search with specific strategy
+scraper zhihu search "transformer" -n 10 --strategy pure_api
+
+# Search columns
+scraper zhihu search "机器学习" -t column
+
+# Fetch article/answer
+scraper zhihu fetch "https://zhuanlan.zhihu.com/p/..."
+
+# Show proxy pool status
+scraper zhihu proxy-status --proxy-api <url>
+
+# Show search types and strategies
+scraper zhihu options
+```
+
+### Weibo (微博)
+
+```bash
+# Login (interactive browser)
+scraper weibo login
+
+# Check login status
+scraper weibo status
+
+# Search posts
+scraper weibo search "keyword" -n 20
+
+# Fetch post detail
+scraper weibo fetch "https://weibo.com/..."
+
+# Browse hot topics
+scraper weibo browse
+
+# Clear session
+scraper weibo logout
 ```
 
 ### Xiaohongshu (小红书)
@@ -85,16 +154,19 @@ scraper wsj scrape-feeds -c markets -n 5
 scraper xhs login --qrcode
 
 # Check login status
-scraper xhs auth
+scraper xhs status
 
-# Explore by category
-scraper xhs explore --category 美食 -l 20
+# Browse by category
+scraper xhs browse --category 美食 -n 20
 
 # Search notes
-scraper xhs search "旅行攻略" --type video -l 30
+scraper xhs search "旅行攻略" --type video -n 30
 
 # Fetch specific note
-scraper xhs note <note_id> --token <xsec_token>
+scraper xhs fetch <note_id> --token <xsec_token>
+
+# Show categories and search types
+scraper xhs options
 ```
 
 ## CLI Reference
@@ -107,46 +179,25 @@ scraper sources
 scraper version
 
 # Source-specific help
-scraper reuters --help
-scraper wsj --help
-scraper xhs --help
+scraper <source> --help
 ```
 
-### Reuters Commands
+### Standardized Commands
 
-| Command | Description |
-|---------|-------------|
-| `login` | Login to Reuters (`-i` for interactive, `-e`/`-p` for credentials) |
-| `import-state` | Import browser state (cookies + localStorage) from JSON file |
-| `status` | Check current login status |
-| `logout` | Clear saved session |
-| `search` | Search articles by keyword (API mode by default, `-b` for browser) |
-| `fetch` | Fetch full article content |
-| `section` | Browse articles from a section (`list` to show all sections) |
+All sources follow a unified command convention:
 
-### WSJ Commands
+| Command | Function | Sources |
+|---------|----------|---------|
+| `login` | Interactive login | Reuters, XHS, Zhihu, Weibo |
+| `status` | Check auth/cookie status | All 6 sources |
+| `logout` | Clear session | Reuters, XHS, Zhihu, Weibo |
+| `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu |
+| `search` | Search content | All 6 sources |
+| `fetch` | Fetch single item by URL/ID | All 6 sources |
+| `browse` | Browse/discover content | Reuters, XHS, WSJ, Weibo |
+| `options` | Show available filters/categories | All 6 sources |
 
-| Command | Description |
-|---------|-------------|
-| `import-cookies` | Import cookies.txt from browser |
-| `check-cookies` | Verify cookies are valid |
-| `categories` | List available RSS feed categories |
-| `feeds` | Fetch articles from RSS feeds |
-| `search` | Search articles with filters (`--sort`, `--date`, `--sources`) |
-| `fetch` | Fetch full article content |
-| `scrape-feeds` | RSS feeds + full content scraping |
-
-### Xiaohongshu Commands
-
-| Command | Description |
-|---------|-------------|
-| `login` | Login (`--qrcode` or `--phone`) |
-| `auth` | Check login status |
-| `logout` | Clear session |
-| `explore` | Browse notes by category |
-| `search` | Search notes |
-| `note` | Fetch specific note by ID |
-| `categories` | List available categories |
+Standard parameters: `-n/--limit`, `-o/--output`, `--no-save`, `--shallow/-s`
 
 ## MCP Server
 
@@ -159,20 +210,47 @@ scraper-mcp
 ### Available Tools
 
 **Reuters:**
-- `reuters_search` - Search for news articles (supports section, date_range filters)
+- `reuters_search` - Search for news articles
+- `reuters_fetch_article` - Fetch full article content
+- `reuters_list_section` - List articles from a section
+- `reuters_get_sections` - Get available sections
 
 **WSJ:**
-- `wsj_search` - Search for news articles (supports sort, date_range, sources filters)
-- `wsj_get_search_options` - Get available search filter options
+- `wsj_search` - Search for news articles (sort, date_range, sources filters)
+- `wsj_fetch_article` - Fetch full article content
+- `wsj_feeds` - Get articles from RSS feeds
+- `wsj_get_categories` - Get available RSS categories
+- `wsj_get_search_options` - Get search filter options
+
+**Google Scholar:**
+- `scholar_search` - Search academic papers
+- `scholar_fetch_article` - Fetch full article content
+- `scholar_get_search_options` - Get search filter options
+
+**Zhihu:**
+- `zhihu_search` - Search content (multi-strategy)
+- `zhihu_fetch_article` - Fetch article/answer content
+- `zhihu_get_search_types` - Get search type filters
+
+**Weibo:**
+- `weibo_search` - Search posts
+- `weibo_fetch_detail` - Fetch post detail
+- `weibo_hot` - Get hot topics
+
+**Xiaohongshu:**
+- `xhs_explore` - Explore notes by category
+- `xhs_search` - Search notes
+- `xhs_fetch_note` - Fetch a specific note
+- `xhs_get_categories` - Get available categories
 
 ### Claude Code Configuration
 
 ```json
 {
   "mcpServers": {
-    "news-search": {
+    "web-scraper": {
       "command": "scraper-mcp",
-      "cwd": "/path/to/Scraper"
+      "cwd": "/path/to/WebScraper"
     }
   }
 }
@@ -187,44 +265,65 @@ scraper-mcp
 │   └── exports/              # Exported data
 ├── wsj/
 │   ├── cookies.txt           # Netscape format cookies
-│   └── exports/              # Exported data
+│   └── exports/
+├── scholar/
+│   ├── cookies.txt           # Google cookies (optional)
+│   └── exports/
+├── zhihu/
+│   ├── browser_state.json    # Session (cookies + localStorage)
+│   └── exports/
+├── weibo/
+│   ├── browser_state.json    # Session
+│   └── exports/
 └── xiaohongshu/
     ├── cookies.json          # Session cookies
-    └── exports/              # Exported data
+    └── exports/
 ```
 
 ## Project Structure
 
 ```
-Scraper/
+WebScraper/
 ├── web_scraper/
-│   ├── cli.py                # Unified CLI entry
-│   ├── mcp_server.py         # MCP Server (news-search)
-│   ├── core/                 # Core modules
-│   │   ├── browser.py        # Browser management
-│   │   ├── base.py           # Sync scraper base
-│   │   ├── async_base.py     # Async scraper base
-│   │   ├── storage.py        # Storage utilities
-│   │   └── exceptions.py     # Exception hierarchy
-│   ├── sources/              # Scraper sources
-│   │   ├── reuters/          # Reuters (sync, Playwright + API)
-│   │   ├── wsj/              # WSJ (sync, httpx)
-│   │   └── xiaohongshu/      # Xiaohongshu (async, Playwright)
-│   └── converters/           # Content converters
-├── scripts/                  # Utility scripts
-├── docs/                     # Documentation
+│   ├── cli.py                  # Unified CLI entry
+│   ├── mcp_server.py           # Unified MCP Server
+│   │
+│   ├── core/                   # Core modules (shared)
+│   │   ├── browser.py          # Browser management (sync + async)
+│   │   ├── base.py             # Sync scraper base class
+│   │   ├── async_base.py       # Async scraper base class
+│   │   ├── display.py          # Shared Rich UI display module
+│   │   ├── storage.py          # Storage utilities
+│   │   ├── exceptions.py       # Exception hierarchy
+│   │   ├── user_agent.py       # UA pool + header generation
+│   │   ├── proxy.py            # Proxy pool with health scoring
+│   │   ├── rate_limiter.py     # Rate limiter (sync + async)
+│   │   └── captcha.py          # CAPTCHA solver interface
+│   │
+│   ├── sources/                # Scraper sources
+│   │   ├── reuters/            # Reuters (sync, Playwright + API)
+│   │   ├── wsj/                # WSJ (sync, httpx)
+│   │   ├── scholar/            # Google Scholar (sync, httpx + BeautifulSoup)
+│   │   ├── zhihu/              # Zhihu (httpx API + Playwright CDP)
+│   │   ├── weibo/              # Weibo (httpx API + Playwright fallback)
+│   │   └── xiaohongshu/        # Xiaohongshu (async, Playwright)
+│   │
+│   └── converters/             # Content converters
+│       └── markdown.py
+│
+├── docs/                       # Documentation
 ├── tests/
 ├── pyproject.toml
-├── CLAUDE.md                 # Project memory for Claude
-├── CHANGELOG.md              # Development changelog
+├── CLAUDE.md
+├── CHANGELOG.md
 └── README.md
 ```
 
 ## Requirements
 
 - Python 3.11+
-- Playwright (for Reuters, Xiaohongshu)
-- httpx (for WSJ)
+- Playwright (for Reuters, Xiaohongshu, Zhihu fallback, Weibo fallback)
+- httpx (for WSJ, Scholar, Zhihu, Weibo)
 - Chrome browser (for best anti-detection)
 
 ## License

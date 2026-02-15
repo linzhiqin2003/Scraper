@@ -71,5 +71,20 @@ def _load_sources():
     except ImportError:
         pass
 
+    try:
+        from . import scholar
+    except ImportError:
+        pass
+
+    try:
+        from . import weibo
+    except ImportError:
+        pass
+
+    try:
+        from . import zhihu
+    except ImportError:
+        pass
+
 
 _load_sources()

@@ -4,11 +4,15 @@ import asyncio
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 
 from ...core.browser import get_browser
+from ...core.display import (
+    ColumnDef,
+    console,
+    display_options,
+    display_search_results,
+)
 from ...core.storage import JSONStorage
 from .auth import AuthManager
 from .config import SOURCE_NAME, CATEGORY_CHANNELS, SEARCH_TYPES, COOKIE_PATH
@@ -19,12 +23,19 @@ app = typer.Typer(
     help="Xiaohongshu (Little Red Book) scraper",
     no_args_is_help=True,
 )
-console = Console()
 
 
 def run_async(coro):
     """Run async function in sync context."""
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def _require_login() -> None:
+    """Check that cookies exist before running commands that need login."""
+    if not COOKIE_PATH.exists():
+        console.print("[yellow]Not logged in.[/yellow]")
+        console.print("[dim]Run 'scraper xhs login --qrcode' to login first.[/dim]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -57,7 +68,7 @@ def login(
 
 
 @app.command()
-def auth() -> None:
+def status() -> None:
     """Check login status."""
     async def _check():
         if not COOKIE_PATH.exists():
@@ -78,6 +89,10 @@ def auth() -> None:
     run_async(_check())
 
 
+# Alias: `auth` → `status`
+auth = app.command("auth", rich_help_panel="Aliases")(status)
+
+
 @app.command()
 def logout() -> None:
     """Clear login session."""
@@ -89,14 +104,15 @@ def logout() -> None:
 
 
 @app.command()
-def explore(
+def browse(
     category: str = typer.Option("推荐", "--category", "-c", help="Category to explore"),
-    limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of notes"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of notes"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
     no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
 ) -> None:
-    """Explore notes from Xiaohongshu homepage."""
+    """Browse notes from Xiaohongshu homepage by category."""
+    _require_login()
     if category not in CATEGORY_CHANNELS:
         console.print(f"[red]Invalid category: {category}[/red]")
         console.print(f"[dim]Valid categories: {', '.join(CATEGORY_CHANNELS.keys())}[/dim]")
@@ -111,24 +127,26 @@ def explore(
                 console.print(f"[yellow]No notes found in {category}[/yellow]")
                 return
 
-            table = Table(title=f"Explore: {category}", show_lines=True)
-            table.add_column("#", style="dim", width=3)
-            table.add_column("Title", style="bold", max_width=40)
-            table.add_column("Author", style="cyan", max_width=15)
-            table.add_column("Likes", style="green", width=8)
-            table.add_column("Note ID", style="dim", width=20)
+            rows = []
+            for note in result.notes:
+                rows.append({
+                    "title": note.title[:40] + ("..." if len(note.title) > 40 else ""),
+                    "author": note.author.nickname[:15],
+                    "likes": str(note.likes),
+                    "note_id": note.note_id,
+                })
 
-            for i, note in enumerate(result.notes, 1):
-                table.add_row(
-                    str(i),
-                    note.title[:40] + ("..." if len(note.title) > 40 else ""),
-                    note.author.nickname[:15],
-                    str(note.likes),
-                    note.note_id,
-                )
-
-            console.print(table)
-            console.print(f"\n[dim]Found {len(result.notes)} notes[/dim]")
+            display_search_results(
+                results=rows,
+                columns=[
+                    ColumnDef("Title", "title", style="bold", max_width=40),
+                    ColumnDef("Author", "author", style="cyan", max_width=15),
+                    ColumnDef("Likes", "likes", style="yellow", width=8),
+                    ColumnDef("Note ID", "note_id", style="dim", width=20),
+                ],
+                title=f"Browse: {category}",
+                summary=f"Found {len(result.notes)} notes",
+            )
 
             if not no_save:
                 import os
@@ -143,16 +161,21 @@ def explore(
     run_async(_explore())
 
 
+# Alias: `explore` → `browse`
+explore = app.command("explore", rich_help_panel="Aliases")(browse)
+
+
 @app.command()
 def search(
     keyword: str = typer.Argument(..., help="Search keyword"),
     search_type: str = typer.Option("all", "--type", "-t", help="Search type: all, video, image"),
-    limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of results"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
     no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
 ) -> None:
     """Search for notes on Xiaohongshu."""
+    _require_login()
     if search_type not in SEARCH_TYPES:
         console.print(f"[red]Invalid search type: {search_type}[/red]")
         console.print(f"[dim]Valid types: {', '.join(SEARCH_TYPES.keys())}[/dim]")
@@ -167,24 +190,26 @@ def search(
                 console.print(f"[yellow]No results found for '{keyword}'[/yellow]")
                 return
 
-            table = Table(title=f"Search: {keyword}", show_lines=True)
-            table.add_column("#", style="dim", width=3)
-            table.add_column("Title", style="bold", max_width=40)
-            table.add_column("Author", style="cyan", max_width=15)
-            table.add_column("Likes", style="green", width=8)
-            table.add_column("Type", style="magenta", width=6)
+            rows = []
+            for note in result.notes:
+                rows.append({
+                    "title": note.title[:40] + ("..." if len(note.title) > 40 else ""),
+                    "author": note.author.nickname[:15],
+                    "likes": str(note.likes),
+                    "type": note.note_type,
+                })
 
-            for i, note in enumerate(result.notes, 1):
-                table.add_row(
-                    str(i),
-                    note.title[:40] + ("..." if len(note.title) > 40 else ""),
-                    note.author.nickname[:15],
-                    str(note.likes),
-                    note.note_type,
-                )
-
-            console.print(table)
-            console.print(f"\n[dim]Found {len(result.notes)} results[/dim]")
+            display_search_results(
+                results=rows,
+                columns=[
+                    ColumnDef("Title", "title", style="bold", max_width=40),
+                    ColumnDef("Author", "author", style="cyan", max_width=15),
+                    ColumnDef("Likes", "likes", style="yellow", width=8),
+                    ColumnDef("Type", "type", style="magenta", width=6),
+                ],
+                title=f"Search: {keyword}",
+                summary=f"Found {len(result.notes)} results",
+            )
 
             if not no_save:
                 import os
@@ -203,12 +228,13 @@ def search(
 
 
 @app.command()
-def note(
+def fetch(
     note_id: str = typer.Argument(..., help="Note ID to fetch"),
     token: Optional[str] = typer.Option(None, "--token", "-t", help="xsec_token for access"),
     headless: bool = typer.Option(False, "--headless/--no-headless", help="Run browser in headless mode"),
 ) -> None:
     """Fetch a specific note by ID."""
+    _require_login()
     async def _fetch():
         async with get_browser(SOURCE_NAME, headless=headless) as browser:
             scraper = NoteScraper(browser)
@@ -227,19 +253,42 @@ def note(
             content += "---\n\n"
             content += result.content
 
-            console.print(Panel(content, title=f"[bold]{result.title}[/]", border_style="blue"))
+            console.print(Panel(content, title=f"[bold]{result.title}[/]", border_style="cyan"))
 
     run_async(_fetch())
 
 
+# Alias: `note` → `fetch`
+note = app.command("note", rich_help_panel="Aliases")(fetch)
+
+
 @app.command()
-def categories() -> None:
-    """List available explore categories."""
-    table = Table(title="Available Categories", show_lines=False)
-    table.add_column("Category", style="cyan")
-    table.add_column("Channel ID", style="dim")
+def options() -> None:
+    """List available categories and search types."""
+    # Categories
+    cat_rows = [{"category": cat, "channel_id": ch_id} for cat, ch_id in CATEGORY_CHANNELS.items()]
+    display_options(
+        items=cat_rows,
+        columns=[
+            ColumnDef("Category", "category", style="cyan"),
+            ColumnDef("Channel ID", "channel_id", style="dim"),
+        ],
+        title="Browse Categories",
+    )
 
-    for category, channel_id in CATEGORY_CHANNELS.items():
-        table.add_row(category, channel_id)
+    console.print()
 
-    console.print(table)
+    # Search types
+    type_rows = [{"type": name, "param": param} for name, param in SEARCH_TYPES.items()]
+    display_options(
+        items=type_rows,
+        columns=[
+            ColumnDef("Type", "type", style="cyan"),
+            ColumnDef("Param", "param", style="dim"),
+        ],
+        title="Search Types",
+    )
+
+
+# Alias: `categories` → `options`
+categories = app.command("categories", rich_help_panel="Aliases")(options)

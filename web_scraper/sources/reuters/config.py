@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Dict
 
+from ...core.user_agent import build_browser_headers
+
 # Source identifier
 SOURCE_NAME = "reuters"
 
@@ -21,12 +23,7 @@ SEARCH_API = f"{API_BASE}articles-by-search-v2"
 SECTION_API = f"{API_BASE}articles-by-section-alias-or-id-v1"
 
 # Default HTTP headers
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-}
+DEFAULT_HEADERS = build_browser_headers()
 
 # Valid search filter values (from Reuters search page)
 VALID_SECTIONS = {

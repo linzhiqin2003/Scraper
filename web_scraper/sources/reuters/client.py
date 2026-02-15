@@ -23,6 +23,11 @@ from .config import (
 )
 from .models import Article, ArticleImage, SearchResult, SectionArticle, SectionInfo
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...core.rate_limiter import RateLimiter
+    from ...core.proxy import ProxyPool
+
 
 class CaptchaRequired(Exception):
     """Raised when CAPTCHA verification is needed."""
@@ -37,15 +42,25 @@ class ReutersClient:
     to Playwright when CAPTCHA or other issues are detected.
     """
 
-    def __init__(self, timeout: int = 30, use_playwright_fallback: bool = True):
+    def __init__(
+        self,
+        timeout: int = 30,
+        use_playwright_fallback: bool = True,
+        rate_limiter: Optional["RateLimiter"] = None,
+        proxy_pool: Optional["ProxyPool"] = None,
+    ):
         """Initialize client.
 
         Args:
             timeout: Request timeout in seconds.
             use_playwright_fallback: Whether to fall back to Playwright on failure.
+            rate_limiter: Optional rate limiter for request throttling.
+            proxy_pool: Optional proxy pool for IP rotation.
         """
         self.timeout = timeout
         self.use_playwright_fallback = use_playwright_fallback
+        self.rate_limiter = rate_limiter
+        self.proxy_pool = proxy_pool
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
         self._cookies_loaded = self._load_cookies()

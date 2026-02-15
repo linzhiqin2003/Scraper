@@ -16,22 +16,11 @@ from playwright.async_api import (
     Playwright as AsyncPlaywright,
 )
 
+from .user_agent import get_random_user_agent  # noqa: F401 — re-exported for backward compat
+
 
 # Default data directory
 DEFAULT_DATA_DIR = Path.home() / ".web_scraper"
-
-# User agents pool
-USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-]
-
-
-def get_random_user_agent() -> str:
-    """Get a random user agent string."""
-    return random.choice(USER_AGENTS)
 
 
 def get_data_dir(source: str) -> Path:
@@ -273,15 +262,17 @@ def save_cookies_sync(page: Page, source: str, base_url: str = "") -> None:
 class BrowserManager:
     """Async browser manager with cookie persistence."""
 
-    def __init__(self, source: str, headless: bool = True):
+    def __init__(self, source: str, headless: bool = True, use_chrome: bool = True):
         """Initialize browser manager.
 
         Args:
             source: Source name for data isolation.
             headless: Run browser in headless mode.
+            use_chrome: Use real Chrome browser (better anti-detection, avoids bundled Chromium crashes).
         """
         self.source = source
         self.headless = headless
+        self.use_chrome = use_chrome
         self._playwright: Optional[AsyncPlaywright] = None
         self._browser: Optional[AsyncBrowser] = None
         self._context: Optional[AsyncBrowserContext] = None
@@ -301,8 +292,24 @@ class BrowserManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self._playwright = await async_playwright().start()
+
+        launch_args = [
+            "--disable-gpu",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-accelerated-2d-canvas",
+            "--disable-infobars",
+            "--window-size=1920,1080",
+        ]
+        if self.headless:
+            launch_args.append("--headless=new")
+
         self._browser = await self._playwright.chromium.launch(
             headless=self.headless,
+            channel="chrome" if self.use_chrome else None,
+            args=launch_args,
         )
 
         self._context = await self._browser.new_context(
@@ -394,17 +401,18 @@ class BrowserManager:
 
 
 @asynccontextmanager
-async def get_browser(source: str, headless: bool = True) -> AsyncIterator[BrowserManager]:
+async def get_browser(source: str, headless: bool = True, use_chrome: bool = True) -> AsyncIterator[BrowserManager]:
     """Context manager for async browser instance.
 
     Args:
         source: Source name for data isolation.
         headless: Run browser in headless mode.
+        use_chrome: Use real Chrome browser instead of bundled Chromium.
 
     Yields:
         BrowserManager instance.
     """
-    manager = BrowserManager(source=source, headless=headless)
+    manager = BrowserManager(source=source, headless=headless, use_chrome=use_chrome)
     try:
         await manager.start()
         yield manager

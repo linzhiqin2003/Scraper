@@ -4,11 +4,17 @@ import time
 from typing import List, Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
-from ...core.browser import create_browser, load_cookies_sync, get_state_path
+from ...core.browser import create_browser, get_state_path
+from ...core.display import (
+    ColumnDef,
+    console,
+    display_auth_status,
+    display_options,
+    display_saved,
+    display_search_results,
+    truncate,
+)
 from .auth import AuthStatus, LoginStatus, check_login_status, interactive_login, perform_login
 from .config import SOURCE_NAME, VALID_SECTIONS, VALID_DATE_RANGES, SECTIONS
 from .models import Article
@@ -20,7 +26,6 @@ app = typer.Typer(
     help="Reuters news scraper",
     no_args_is_help=True,
 )
-console = Console()
 
 
 def validate_section(value: Optional[str]) -> Optional[str]:
@@ -46,40 +51,21 @@ def validate_date_range(value: Optional[str]) -> Optional[str]:
     return value
 
 
-def status_style(status: LoginStatus) -> str:
-    """Get Rich style for login status."""
-    styles = {
-        LoginStatus.LOGGED_IN: "bold green",
-        LoginStatus.LOGGED_OUT: "bold red",
-        LoginStatus.SESSION_EXPIRED: "bold yellow",
-        LoginStatus.UNKNOWN: "bold dim",
-    }
-    return styles.get(status, "")
-
-
-def display_auth_status(auth: AuthStatus) -> None:
-    """Display authentication status with Rich formatting."""
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Key", style="dim")
-    table.add_column("Value")
-
-    status_text = auth.status.value.replace("_", " ").title()
-    table.add_row("Status", f"[{status_style(auth.status)}]{status_text}[/]")
-
+def _show_auth(auth: AuthStatus) -> None:
+    extras: dict = {}
     if auth.email:
-        table.add_row("Email", auth.email)
-
+        extras["Email"] = auth.email
     if auth.checked_at:
-        table.add_row("Checked at", auth.checked_at.strftime("%Y-%m-%d %H:%M:%S"))
-
+        extras["Checked at"] = auth.checked_at.strftime("%Y-%m-%d %H:%M:%S")
     if auth.message:
-        table.add_row("Message", auth.message)
+        extras["Message"] = auth.message
 
-    state_file = get_state_path(SOURCE_NAME)
-    session_status = "[green]exists[/]" if state_file.exists() else "[dim]not found[/]"
-    table.add_row("Session file", session_status)
-
-    console.print(Panel(table, title="[bold]Reuters Login Status[/]", border_style="blue"))
+    display_auth_status(
+        source_name="Reuters",
+        status=auth.status.value,
+        extras=extras,
+        state_file=get_state_path(SOURCE_NAME),
+    )
 
 
 @app.command()
@@ -102,7 +88,7 @@ def login(
             with console.status("[cyan]Logging in...[/]"):
                 result = perform_login(email, password, headless=False)
 
-        display_auth_status(result)
+        _show_auth(result)
 
         if result.status == LoginStatus.LOGGED_IN:
             raise typer.Exit(0)
@@ -126,7 +112,7 @@ def status() -> None:
             status=LoginStatus.LOGGED_OUT,
             message="No saved session found. Run 'scraper reuters login' or 'import-cookies' first.",
         )
-        display_auth_status(result)
+        _show_auth(result)
         raise typer.Exit(1)
 
     try:
@@ -152,7 +138,7 @@ def status() -> None:
                     message="Not logged in - Sign In link visible",
                 )
 
-        display_auth_status(result)
+        _show_auth(result)
 
         if result.status == LoginStatus.LOGGED_IN:
             raise typer.Exit(0)
@@ -451,24 +437,29 @@ def search(
         console.print(f"[yellow]No results found for '{query}'[/]")
         raise typer.Exit(0)
 
-    # Display results table
-    table = Table(title=f"Search Results: {query}", show_lines=True)
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Title", style="bold", max_width=40)
-    table.add_column("URL", style="blue", max_width=50)
-    table.add_column("Time", style="cyan", width=12)
-    table.add_column("Category", style="green", width=10)
-
-    for i, result in enumerate(results, 1):
+    # Display results using shared display
+    rows = []
+    for result in results:
         url = result.url if hasattr(result, 'url') else ""
         short_url = url.replace("https://www.reuters.com", "") if url else "-"
-        title = result.title if hasattr(result, 'title') else str(result)
-        pub_time = result.published_at if hasattr(result, 'published_at') else "-"
-        category = result.category if hasattr(result, 'category') else "-"
-        table.add_row(str(i), title, short_url, pub_time or "-", category or "-")
+        rows.append({
+            "title": result.title if hasattr(result, 'title') else str(result),
+            "url": short_url,
+            "time": (result.published_at if hasattr(result, 'published_at') else "-") or "-",
+            "category": (result.category if hasattr(result, 'category') else "-") or "-",
+        })
 
-    console.print(table)
-    console.print(f"\n[dim]Found {len(results)} results[/]")
+    display_search_results(
+        results=rows,
+        columns=[
+            ColumnDef("Title", "title", style="bold", max_width=40),
+            ColumnDef("URL", "url", style="dim", max_width=50),
+            ColumnDef("Time", "time", style="green", width=12),
+            ColumnDef("Category", "category", style="magenta", width=10),
+        ],
+        title=f"Search Results: {query}",
+        summary=f"Found {len(results)} results",
+    )
 
     if shallow:
         return
@@ -529,7 +520,7 @@ def search(
             json.dump(articles_data, f, ensure_ascii=False, indent=2)
 
         console.print(f"\n[green]Successfully fetched {len(articles)}/{len(results)} articles[/]")
-        console.print(f"[dim]Saved to {filepath}[/]")
+        display_saved(filepath)
     else:
         console.print(f"\n[green]Successfully fetched {len(articles)}/{len(results)} articles[/]")
 
@@ -544,6 +535,7 @@ def fetch(
 
     By default uses fast API mode. Use --browser to force Playwright mode.
     """
+    from rich.panel import Panel
     from .client import ReutersClient
 
     state_file = get_state_path(SOURCE_NAME)
@@ -592,13 +584,13 @@ def fetch(
     if output:
         with open(output, "w") as f:
             f.write(md_content)
-        console.print(f"[green]Article saved to {output}[/]")
+        display_saved(output, description="Article")
     else:
-        console.print(Panel(md_content, title=f"[bold]{article.title}[/]", border_style="blue"))
+        console.print(Panel(md_content, title=f"[bold]{article.title}[/]", border_style="cyan"))
 
 
 @app.command()
-def section(
+def browse(
     section_name: str = typer.Argument(..., help="Section slug or 'list'"),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of articles"),
     browser: bool = typer.Option(False, "--browser", "-b", help="Force browser mode (skip API)"),
@@ -617,20 +609,24 @@ def section(
     from .client import ReutersClient
 
     if section_name.lower() == "list":
-        table = Table(title="Available Sections", show_lines=False)
-        table.add_column("Slug", style="cyan")
-        table.add_column("Name", style="bold")
-        table.add_column("URL", style="dim")
-
+        rows = []
         for slug, info in sorted(SECTIONS.items()):
-            table.add_row(slug, info["name"], info["url"])
+            rows.append({"slug": slug, "name": info["name"], "url": info["url"]})
 
-        console.print(table)
+        display_options(
+            items=rows,
+            columns=[
+                ColumnDef("Slug", "slug", style="cyan"),
+                ColumnDef("Name", "name", style="bold"),
+                ColumnDef("URL", "url", style="dim"),
+            ],
+            title="Available Sections",
+        )
         return
 
     if section_name not in SECTIONS:
         console.print(f"[red]Invalid section: {section_name}[/]")
-        console.print(f"[dim]Run 'scraper reuters section list' to see available sections.[/]")
+        console.print(f"[dim]Run 'scraper reuters browse list' to see available sections.[/]")
         raise typer.Exit(1)
 
     state_file = get_state_path(SOURCE_NAME)
@@ -670,29 +666,29 @@ def section(
         console.print(f"[yellow]No articles found in {section_info['name']}[/]")
         raise typer.Exit(0)
 
-    # Display results table
-    table = Table(title=f"Section: {section_info['name']}", show_lines=True)
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Title", style="bold", max_width=50)
-    table.add_column("Time", style="cyan", width=12)
-    table.add_column("URL", style="blue", max_width=40)
-
-    for i, result in enumerate(results, 1):
+    # Display results using shared display
+    rows = []
+    for result in results:
         url = result.url if hasattr(result, 'url') else ""
         short_url = url.replace("https://www.reuters.com", "") if url else "-"
         if len(short_url) > 40:
             short_url = short_url[:37] + "..."
-        title = result.title if hasattr(result, 'title') else str(result)
-        pub_time = result.published_at if hasattr(result, 'published_at') else "-"
-        table.add_row(
-            str(i),
-            title[:50] + ("..." if len(title) > 50 else ""),
-            pub_time or "-",
-            short_url,
-        )
+        rows.append({
+            "title": truncate(result.title if hasattr(result, 'title') else str(result), 50),
+            "time": (result.published_at if hasattr(result, 'published_at') else "-") or "-",
+            "url": short_url,
+        })
 
-    console.print(table)
-    console.print(f"\n[dim]Found {len(results)} articles[/]")
+    display_search_results(
+        results=rows,
+        columns=[
+            ColumnDef("Title", "title", style="bold", max_width=50),
+            ColumnDef("Time", "time", style="green", width=12),
+            ColumnDef("URL", "url", style="dim", max_width=40),
+        ],
+        title=f"Section: {section_info['name']}",
+        summary=f"Found {len(results)} articles",
+    )
 
     if shallow:
         return
@@ -752,6 +748,42 @@ def section(
             json.dump(articles_data, f, ensure_ascii=False, indent=2)
 
         console.print(f"\n[green]Successfully fetched {len(articles)}/{len(results)} articles[/]")
-        console.print(f"[dim]Saved to {filepath}[/]")
+        display_saved(filepath)
     else:
         console.print(f"\n[green]Successfully fetched {len(articles)}/{len(results)} articles[/]")
+
+
+# Alias: `section` → `browse`
+section = app.command("section", rich_help_panel="Aliases")(browse)
+
+
+@app.command()
+def options() -> None:
+    """Show available sections, sort options, and date ranges."""
+    # Sections
+    section_rows = []
+    for slug, info in sorted(SECTIONS.items()):
+        section_rows.append({"slug": slug, "name": info["name"]})
+
+    display_options(
+        items=section_rows,
+        columns=[
+            ColumnDef("Slug", "slug", style="cyan"),
+            ColumnDef("Name", "name", style="bold"),
+        ],
+        title="Available Sections",
+    )
+
+    # Sort options
+    console.print()
+    display_options(
+        items=[
+            {"option": "Sort (--sort)", "values": "relevance, date"},
+            {"option": "Date Range (--date)", "values": ", ".join(VALID_DATE_RANGES)},
+        ],
+        columns=[
+            ColumnDef("Option", "option", style="cyan"),
+            ColumnDef("Values", "values"),
+        ],
+        title="Search Options",
+    )

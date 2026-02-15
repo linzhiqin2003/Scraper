@@ -43,8 +43,6 @@ htmlcov/
 # Output and data
 output/
 exports/
-*.json
-!pyproject.toml
 
 # Session files (contain sensitive cookies)
 browser_state.json
@@ -63,3 +61,9 @@ logs/
 *.tmp
 *.temp
 .cache/
+
+# Claude Code local config
+.claude/
+
+# Legacy projects
+legacy/

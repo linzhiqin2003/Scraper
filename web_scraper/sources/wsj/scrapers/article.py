@@ -8,6 +8,7 @@ from typing import List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
+from ....core.rate_limiter import RateLimiter
 from ..config import SOURCE_NAME, BASE_URL, DEFAULT_HEADERS
 from ..models import ArticleDetail
 from ..cookies import load_cookies
@@ -193,9 +194,19 @@ class ArticleScraper:
     SOURCE_NAME = SOURCE_NAME
     BASE_URL = BASE_URL
 
-    def __init__(self, cookies_path: Optional[Path] = None):
-        """Initialize scraper with cookies."""
+    def __init__(
+        self,
+        cookies_path: Optional[Path] = None,
+        rate_limiter: Optional[RateLimiter] = None,
+    ):
+        """Initialize scraper with cookies.
+
+        Args:
+            cookies_path: Optional path to cookies file.
+            rate_limiter: Optional rate limiter for request throttling.
+        """
         self.cookies = load_cookies(cookies_path)
+        self.rate_limiter = rate_limiter
 
     def scrape(self, url: str) -> ArticleDetail:
         """

@@ -1,14 +1,18 @@
 """CLI commands for WSJ scraper."""
-import asyncio
 import json
 from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from ...core.display import (
+    ColumnDef,
+    console,
+    display_options,
+    display_saved,
+    display_search_results,
+)
 from ...core.storage import JSONStorage
 from .config import SOURCE_NAME, FEEDS
 from .cookies import (
@@ -24,7 +28,6 @@ app = typer.Typer(
     help="Wall Street Journal scraping commands.",
     no_args_is_help=True,
 )
-console = Console()
 
 
 # =============================================================================
@@ -32,13 +35,13 @@ console = Console()
 # =============================================================================
 
 
-@app.command("check-cookies")
-def check_cookies(
+@app.command()
+def status(
     cookies_file: Optional[Path] = typer.Option(
         None, "--cookies", "-c", help="Path to cookies.txt file"
     ),
 ) -> None:
-    """Verify that cookies are valid for WSJ access."""
+    """Check that cookies are valid for WSJ access."""
     cookies_path = cookies_file or get_cookies_path()
 
     try:
@@ -72,6 +75,10 @@ def check_cookies(
         raise typer.Exit(1)
 
 
+# Alias: `check-cookies` → `status`
+check_cookies = app.command("check-cookies", rich_help_panel="Aliases")(status)
+
+
 @app.command("import-cookies")
 def import_cookies(
     source: Path = typer.Argument(..., help="Source cookies.txt file"),
@@ -91,34 +98,32 @@ def import_cookies(
 
 
 # =============================================================================
-# RSS Feeds
+# Browse (RSS Feeds) — merges old `feeds` and `scrape-feeds`
 # =============================================================================
 
 
 @app.command()
-def categories() -> None:
-    """List available RSS feed categories."""
-    table = Table(title="Available Categories")
-    table.add_column("Category", style="cyan")
-    table.add_column("Feed URL", style="dim")
-
-    for name, url in FEEDS.items():
-        table.add_row(name, url)
-
-    console.print(table)
-
-
-@app.command()
-def feeds(
+def browse(
     category: Optional[str] = typer.Option(
         None, "--category", "-c", help="Filter by category"
     ),
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum articles to show"),
+    shallow: bool = typer.Option(True, "--shallow/--no-shallow", help="Only show list (default), use --no-shallow to fetch full content"),
+    cookies_file: Optional[Path] = typer.Option(
+        None, "--cookies", help="Path to cookies.txt file"
+    ),
+    delay: float = typer.Option(
+        1.5, "--delay", "-d", help="Delay between requests (seconds)"
+    ),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Save to JSON file"
     ),
 ) -> None:
-    """Fetch articles from RSS feeds."""
+    """Browse articles from RSS feeds.
+
+    By default shows article list only (shallow mode).
+    Use --no-shallow to also fetch full article content.
+    """
     if category and category not in FEEDS:
         console.print(f"[red]Error:[/red] Unknown category '{category}'")
         console.print(f"Available: {', '.join(FEEDS.keys())}")
@@ -140,17 +145,88 @@ def feeds(
         console.print("[yellow]No articles found[/yellow]")
         return
 
-    for i, article in enumerate(articles, 1):
+    # Display as table
+    rows = []
+    for article in articles:
         date_str = article.published_at.strftime("%m/%d %H:%M")
-        console.print(f"[dim]{i:2}. {date_str}[/dim] [cyan]{article.category}[/cyan]")
-        console.print(f"    [bold]{article.title}[/bold]")
-        console.print(f"    [dim]{article.url}[/dim]\n")
+        rows.append({
+            "time": date_str,
+            "category": article.category,
+            "title": article.title,
+            "url": article.url,
+        })
 
-    if output:
+    display_search_results(
+        results=rows,
+        columns=[
+            ColumnDef("Time", "time", style="green", width=12),
+            ColumnDef("Category", "category", style="magenta", width=12),
+            ColumnDef("Title", "title", style="bold", max_width=50),
+            ColumnDef("URL", "url", style="dim", max_width=50),
+        ],
+        title=f"RSS Feeds{f': {category}' if category else ''}",
+        summary=f"Found {len(articles)} articles",
+    )
+
+    if output and shallow:
         data = [a.model_dump(mode="json") for a in articles]
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        console.print(f"[green]Saved to:[/green] {output}")
+        display_saved(output)
+
+    if shallow:
+        return
+
+    # Full mode: scrape article content
+    try:
+        article_scraper = ArticleScraper(cookies_file)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"Run 'scraper {SOURCE_NAME} import-cookies <path>' first")
+        raise typer.Exit(1)
+
+    storage = JSONStorage(source=SOURCE_NAME)
+    success_count = 0
+    fail_count = 0
+
+    import time
+
+    for i, feed_article in enumerate(articles, 1):
+        console.print(f"[{i}/{len(articles)}] {feed_article.title[:50]}...")
+
+        try:
+            full_article = article_scraper.scrape(feed_article.url)
+
+            if full_article.is_paywalled:
+                console.print("  [yellow]⚠ Paywalled[/yellow]")
+                fail_count += 1
+            else:
+                filename = f"{full_article.article_id}.json"
+                filepath = storage.save(
+                    full_article.model_dump(mode="json"),
+                    filename,
+                    description="article",
+                    silent=True,
+                )
+                console.print(f"  [green]✓[/green] {filepath}")
+                success_count += 1
+
+        except Exception as e:
+            console.print(f"  [red]✗[/red] {e}")
+            fail_count += 1
+
+        if i < len(articles):
+            time.sleep(delay)
+
+    console.print(
+        f"\n[bold]Done:[/bold] [green]{success_count}[/green] success, "
+        f"[red]{fail_count}[/red] failed"
+    )
+
+
+# Aliases
+feeds = app.command("feeds", rich_help_panel="Aliases")(browse)
+scrape_feeds = app.command("scrape-feeds", rich_help_panel="Aliases")(browse)
 
 
 # =============================================================================
@@ -233,34 +309,48 @@ def search(
     if limit:
         results = results[:limit]
 
-    console.print(f"\n[bold]Found {len(results)} articles[/bold]\n")
-
-    # Shallow mode: only show URLs
+    # Shallow mode: show results as table
     if shallow:
-        for i, r in enumerate(results, 1):
-            category = f"[dim][{r.category}][/dim] " if r.category else ""
-            console.print(f"[cyan]{i:2}.[/cyan] {category}[bold]{r.headline}[/bold]")
-            if r.author:
-                console.print(f"     [dim]By {r.author}[/dim]")
-            console.print(f"     [dim]{r.url}[/dim]\n")
+        rows = []
+        for r in results:
+            rows.append({
+                "category": r.category or "",
+                "title": r.headline,
+                "author": r.author or "",
+                "url": r.url,
+            })
+
+        display_search_results(
+            results=rows,
+            columns=[
+                ColumnDef("Category", "category", style="magenta", width=12),
+                ColumnDef("Title", "title", style="bold", max_width=50),
+                ColumnDef("Author", "author", style="cyan", max_width=20),
+                ColumnDef("URL", "url", style="dim", max_width=50),
+            ],
+            title=f"Search: {query}",
+            summary=f"Found {len(results)} articles",
+        )
 
         if output:
             data = [r.model_dump(mode="json") for r in results]
             with open(output, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            console.print(f"[green]Results saved to:[/green] {output}")
+            display_saved(output)
         return
 
     # Full mode: scrape article content
+    console.print(f"\n[bold]Found {len(results)} articles[/bold]\n")
+
     try:
         article_scraper = ArticleScraper(cookies_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
-    import time
+    import time as time_mod
     storage = JSONStorage(source=SOURCE_NAME)
-    articles = []
+    scraped_articles = []
     success_count = 0
     fail_count = 0
 
@@ -274,7 +364,7 @@ def search(
                 console.print("  [yellow]⚠ Paywalled[/yellow]")
                 fail_count += 1
             else:
-                articles.append(article)
+                scraped_articles.append(article)
                 console.print(f"  [green]✓[/green] {article.title[:50]}")
                 success_count += 1
 
@@ -283,7 +373,7 @@ def search(
             fail_count += 1
 
         if i < len(results):
-            time.sleep(delay)
+            time_mod.sleep(delay)
 
     console.print(
         f"\n[bold]Summary:[/bold] [green]{success_count}[/green] success, "
@@ -291,14 +381,13 @@ def search(
     )
 
     # Save results
-    if output and articles:
-        data = [a.model_dump(mode="json") for a in articles]
+    if output and scraped_articles:
+        data = [a.model_dump(mode="json") for a in scraped_articles]
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        console.print(f"[green]Articles saved to:[/green] {output}")
-    elif articles:
-        # Save to default storage
-        for article in articles:
+        display_saved(output, description="Articles")
+    elif scraped_articles:
+        for article in scraped_articles:
             filename = f"{article.article_id}.json"
             storage.save(
                 article.model_dump(mode="json"),
@@ -391,87 +480,48 @@ def fetch(
             with open(output, "w", encoding="utf-8") as f:
                 json.dump(article.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
 
-        console.print(f"\n[green]Saved to:[/green] {save_path}")
+        display_saved(save_path, description="Article")
 
 
-@app.command("scrape-feeds")
-def scrape_feeds(
-    category: Optional[str] = typer.Option(
-        None, "--category", "-c", help="Filter by category"
-    ),
-    limit: int = typer.Option(5, "--limit", "-n", help="Maximum articles to scrape"),
-    cookies_file: Optional[Path] = typer.Option(
-        None, "--cookies", help="Path to cookies.txt file"
-    ),
-    delay: float = typer.Option(
-        1.5, "--delay", "-d", help="Delay between requests (seconds)"
-    ),
-) -> None:
-    """Fetch RSS feeds and scrape full article content."""
-    # Fetch RSS
-    feed_scraper = FeedScraper()
+# =============================================================================
+# Options
+# =============================================================================
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        progress.add_task("Fetching RSS feeds...", total=None)
-        response = feed_scraper.fetch(category)
 
-    articles = response.articles[:limit]
-
-    if not articles:
-        console.print("[yellow]No articles found[/yellow]")
-        return
-
-    console.print(f"Found [cyan]{len(articles)}[/cyan] articles, scraping full content...\n")
-
-    # Scrape full content
-    try:
-        article_scraper = ArticleScraper(cookies_file)
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        console.print(f"Run 'scraper {SOURCE_NAME} import-cookies <path>' first")
-        raise typer.Exit(1)
-
-    storage = JSONStorage(source=SOURCE_NAME)
-    success_count = 0
-    fail_count = 0
-
-    import time
-
-    for i, feed_article in enumerate(articles, 1):
-        console.print(f"[{i}/{len(articles)}] {feed_article.title[:50]}...")
-
-        try:
-            full_article = article_scraper.scrape(feed_article.url)
-
-            if full_article.is_paywalled:
-                console.print("  [yellow]⚠ Paywalled[/yellow]")
-                fail_count += 1
-            else:
-                filename = f"{full_article.article_id}.json"
-                filepath = storage.save(
-                    full_article.model_dump(mode="json"),
-                    filename,
-                    description="article",
-                    silent=True,
-                )
-                console.print(f"  [green]✓[/green] {filepath}")
-                success_count += 1
-
-        except Exception as e:
-            console.print(f"  [red]✗[/red] {e}")
-            fail_count += 1
-
-        if i < len(articles):
-            time.sleep(delay)
-
-    console.print(
-        f"\n[bold]Done:[/bold] [green]{success_count}[/green] success, "
-        f"[red]{fail_count}[/red] failed"
+@app.command()
+def options() -> None:
+    """Show available RSS categories and search filter options."""
+    # RSS categories
+    cat_rows = [{"category": name, "feed_url": url} for name, url in FEEDS.items()]
+    display_options(
+        items=cat_rows,
+        columns=[
+            ColumnDef("Category", "category", style="cyan"),
+            ColumnDef("Feed URL", "feed_url", style="dim"),
+        ],
+        title="RSS Categories",
     )
+
+    console.print()
+
+    # Search filters
+    filter_rows = [
+        {"option": "Sort (--sort)", "values": "newest, oldest, relevance"},
+        {"option": "Date (--date)", "values": "day, week, month, year, all"},
+        {"option": "Sources (--sources)", "values": "articles, video, audio, livecoverage, buyside"},
+    ]
+    display_options(
+        items=filter_rows,
+        columns=[
+            ColumnDef("Option", "option", style="cyan"),
+            ColumnDef("Values", "values"),
+        ],
+        title="Search Filters",
+    )
+
+
+# Alias: `categories` → `options`
+categories = app.command("categories", rich_help_panel="Aliases")(options)
 
 
 if __name__ == "__main__":
