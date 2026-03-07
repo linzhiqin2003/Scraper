@@ -86,5 +86,30 @@ def _load_sources():
     except ImportError:
         pass
 
+    try:
+        from . import serper
+    except ImportError:
+        pass
+
+    try:
+        from . import google
+    except ImportError:
+        pass
+
+    try:
+        from . import ctrip
+    except ImportError:
+        pass
+
+    try:
+        from . import dianping
+    except ImportError:
+        pass
+
+    try:
+        from . import douyin
+    except ImportError:
+        pass
+
 
 _load_sources()

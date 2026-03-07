@@ -1,10 +1,10 @@
 # Web Scraper
 
-统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎和小红书内容爬取，支持 CLI 和 MCP Server 两种使用方式。
+统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书和抖音内容爬取，支持 CLI 和 MCP Server 两种使用方式。
 
 ## Features
 
-- **6 源支持**: Reuters、WSJ、Google Scholar、Weibo、Zhihu、Xiaohongshu
+- **7 源支持**: Reuters、WSJ、Google Scholar、Weibo、Zhihu、Xiaohongshu、**Douyin**
 - **统一 CLI**: `scraper <source> <command>` 子命令模式，所有源命令标准化
 - **MCP Server**: 可作为 LLM Agent 工具使用（`scraper-mcp`）
 - **反检测**: Playwright + 真实 Chrome + Stealth 脚本 + UA 池 + 代理池
@@ -169,6 +169,38 @@ scraper xhs fetch <note_id> --token <xsec_token>
 scraper xhs options
 ```
 
+### Douyin (抖音)
+
+```bash
+# Import cookies from browser (Netscape .txt or JSON array)
+scraper douyin import-cookies ~/Downloads/www.douyin.com_cookies.txt
+
+# Check login status
+scraper douyin status
+
+# Login interactively (QR code in browser)
+scraper douyin login
+
+# Fetch comments from a video URL
+scraper douyin fetch https://www.douyin.com/video/7613328220456226089
+
+# Fetch 100 comments
+scraper douyin fetch <url> -n 100
+
+# Fetch comments with replies
+scraper douyin fetch <url> -n 50 --with-replies
+
+# Save to specific file
+scraper douyin fetch <url> -n 50 -o comments.json
+
+# Clear saved session
+scraper douyin logout
+```
+
+> **Note**: Douyin uses `a_bogus` request signing that can only be computed inside a real browser.
+> The scraper uses Playwright response interception — the browser navigates to the video page and
+> the comment API responses are captured automatically, requiring no manual signature computation.
+
 ## CLI Reference
 
 ```bash
@@ -188,14 +220,14 @@ All sources follow a unified command convention:
 
 | Command | Function | Sources |
 |---------|----------|---------|
-| `login` | Interactive login | Reuters, XHS, Zhihu, Weibo |
-| `status` | Check auth/cookie status | All 6 sources |
-| `logout` | Clear session | Reuters, XHS, Zhihu, Weibo |
-| `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu |
-| `search` | Search content | All 6 sources |
-| `fetch` | Fetch single item by URL/ID | All 6 sources |
+| `login` | Interactive login | Reuters, XHS, Zhihu, Weibo, Douyin |
+| `status` | Check auth/cookie status | All 7 sources |
+| `logout` | Clear session | Reuters, XHS, Zhihu, Weibo, Douyin |
+| `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu, Douyin |
+| `search` | Search content | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS |
+| `fetch` | Fetch single item by URL/ID | All 7 sources |
 | `browse` | Browse/discover content | Reuters, XHS, WSJ, Weibo |
-| `options` | Show available filters/categories | All 6 sources |
+| `options` | Show available filters/categories | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS |
 
 Standard parameters: `-n/--limit`, `-o/--output`, `--no-save`, `--shallow/-s`
 
@@ -243,6 +275,8 @@ scraper-mcp
 - `xhs_fetch_note` - Fetch a specific note
 - `xhs_get_categories` - Get available categories
 
+> Douyin comment fetching is CLI-only (not exposed as MCP tool).
+
 ### Claude Code Configuration
 
 ```json
@@ -275,8 +309,11 @@ scraper-mcp
 ├── weibo/
 │   ├── browser_state.json    # Session
 │   └── exports/
-└── xiaohongshu/
-    ├── cookies.json          # Session cookies
+├── xiaohongshu/
+│   ├── cookies.json          # Session cookies
+│   └── exports/
+└── douyin/
+    ├── browser_state.json    # Session (cookies from browser export)
     └── exports/
 ```
 
@@ -306,7 +343,8 @@ WebScraper/
 │   │   ├── scholar/            # Google Scholar (sync, httpx + BeautifulSoup)
 │   │   ├── zhihu/              # Zhihu (httpx API + Playwright CDP)
 │   │   ├── weibo/              # Weibo (httpx API + Playwright fallback)
-│   │   └── xiaohongshu/        # Xiaohongshu (async, Playwright)
+│   │   ├── xiaohongshu/        # Xiaohongshu (async, Playwright)
+│   │   └── douyin/             # Douyin (sync, Playwright response interception)
 │   │
 │   └── converters/             # Content converters
 │       └── markdown.py
