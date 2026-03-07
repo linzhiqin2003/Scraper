@@ -9,7 +9,7 @@ from rich.console import Console
 
 from ....core.browser import random_delay
 from ..config import EXPLORE_URL, Selectors
-from ..models import Author, Note
+from ..models import Author, Comment, Note
 from .base import XHSBaseScraper
 
 console = Console()
@@ -24,6 +24,8 @@ class NoteScraper(XHSBaseScraper):
         xsec_token: str = "",
         keep_page: bool = False,
         silent: bool = False,
+        fetch_comments: bool = False,
+        max_comments: int = 50,
     ) -> Tuple[Optional[Note], Optional[Page]]:
         """Scrape note detail page.
 
@@ -32,6 +34,8 @@ class NoteScraper(XHSBaseScraper):
             xsec_token: Security token (required for access).
             keep_page: If True, return the page object for reuse.
             silent: If True, suppress console output.
+            fetch_comments: If True, also fetch comments.
+            max_comments: Maximum number of comments to fetch.
 
         Returns:
             Tuple of (Note object or None, Page object or None if keep_page=False).
@@ -63,7 +67,9 @@ class NoteScraper(XHSBaseScraper):
                     await page.close()
                 return None, None
 
-            note = await self._extract_note_details(page, note_id)
+            note = await self._extract_note_details(
+                page, note_id, fetch_comments=fetch_comments, max_comments=max_comments
+            )
 
             if not silent:
                 if note:
@@ -85,7 +91,13 @@ class NoteScraper(XHSBaseScraper):
                 await page.close()
             return None, None
 
-    async def _extract_note_details(self, page: Page, note_id: str) -> Optional[Note]:
+    async def _extract_note_details(
+        self,
+        page: Page,
+        note_id: str,
+        fetch_comments: bool = False,
+        max_comments: int = 50,
+    ) -> Optional[Note]:
         """Extract note details from the page."""
         try:
             await self._wait_for_element(page, '.note-content, #detail-title', timeout=10000)
@@ -143,6 +155,11 @@ class NoteScraper(XHSBaseScraper):
             collects = await self._extract_stat(page, "collect", "收藏")
             shares = await self._extract_stat(page, "share", "分享")
 
+            # Fetch comments if requested
+            comments: List[Comment] = []
+            if fetch_comments:
+                comments = await self._extract_comments(page, max_comments)
+
             return Note(
                 note_id=note_id,
                 title=title,
@@ -156,6 +173,7 @@ class NoteScraper(XHSBaseScraper):
                 comments_count=comments_count,
                 collects=collects,
                 shares=shares,
+                comments=comments,
             )
 
         except Exception as e:
@@ -260,3 +278,159 @@ class NoteScraper(XHSBaseScraper):
                 return datetime.now() - timedelta(days=days)
 
         return None
+
+    async def _extract_comments(self, page: Page, max_comments: int = 50) -> List[Comment]:
+        """Extract comments from the note page.
+
+        Args:
+            page: Playwright Page object.
+            max_comments: Maximum number of comments to extract.
+
+        Returns:
+            List of Comment objects.
+        """
+        comments: List[Comment] = []
+
+        try:
+            # Scroll to comments section to trigger loading
+            comments_section = await page.query_selector(Selectors.COMMENTS_CONTAINER)
+            if comments_section:
+                await comments_section.scroll_into_view_if_needed()
+                await random_delay(1.0, 2.0)
+
+            # Try to expand/load more comments
+            for _ in range(5):  # Try up to 5 times to load more comments
+                expand_btn = await page.query_selector(Selectors.COMMENTS_TOGGLE)
+                if expand_btn:
+                    try:
+                        await expand_btn.click()
+                        await random_delay(1.0, 1.5)
+                    except Exception:
+                        break
+                else:
+                    break
+
+                # Check if we have enough comments
+                comment_items = await page.query_selector_all(Selectors.COMMENT_ITEM)
+                if len(comment_items) >= max_comments:
+                    break
+
+            # Extract comment items
+            comment_items = await page.query_selector_all(Selectors.COMMENT_ITEM)
+
+            for i, item in enumerate(comment_items[:max_comments]):
+                try:
+                    comment = await self._extract_single_comment(item)
+                    if comment:
+                        comments.append(comment)
+                except Exception:
+                    continue
+
+        except Exception as e:
+            console.print(f"[dim]Warning: Error extracting comments: {e}[/dim]")
+
+        return comments
+
+    async def _extract_single_comment(self, element) -> Optional[Comment]:
+        """Extract a single comment from an element.
+
+        Args:
+            element: Playwright ElementHandle for the comment item.
+
+        Returns:
+            Comment object or None.
+        """
+        try:
+            # Extract comment ID from element attributes or generate one
+            comment_id = await element.get_attribute("data-id") or ""
+            if not comment_id:
+                comment_id = await element.get_attribute("id") or ""
+            if not comment_id:
+                # Generate a simple hash from content
+                content_el = await element.query_selector(Selectors.COMMENT_CONTENT)
+                if content_el:
+                    content_text = await content_el.text_content() or ""
+                    comment_id = str(hash(content_text))[:12]
+
+            # Extract content
+            content = ""
+            content_el = await element.query_selector(Selectors.COMMENT_CONTENT)
+            if content_el:
+                content = await content_el.text_content() or ""
+            content = content.strip()
+
+            if not content:
+                return None
+
+            # Extract author info
+            author_name = ""
+            author_id = ""
+            author_avatar = ""
+
+            name_el = await element.query_selector(Selectors.COMMENT_AUTHOR_NAME)
+            if name_el:
+                author_name = await name_el.text_content() or ""
+                author_name = author_name.strip()
+
+            link_el = await element.query_selector(Selectors.COMMENT_AUTHOR_LINK)
+            if link_el:
+                href = await link_el.get_attribute("href") or ""
+                author_id = await self._extract_user_id(href)
+
+            avatar_el = await element.query_selector(Selectors.COMMENT_AUTHOR_AVATAR)
+            if avatar_el:
+                author_avatar = await avatar_el.get_attribute("src") or ""
+
+            author = Author(
+                user_id=author_id,
+                nickname=author_name,
+                avatar=author_avatar,
+            )
+
+            # Extract likes
+            likes = 0
+            likes_el = await element.query_selector(Selectors.COMMENT_LIKES)
+            if likes_el:
+                likes_text = await likes_el.text_content() or "0"
+                likes = self._parse_count(likes_text)
+
+            # Extract time
+            create_time = None
+            time_el = await element.query_selector(Selectors.COMMENT_TIME)
+            if time_el:
+                time_text = await time_el.text_content() or ""
+                create_time = self._parse_time(time_text)
+
+            # Extract sub-comments (replies)
+            sub_comments: List[Comment] = []
+            sub_container = await element.query_selector(Selectors.SUB_COMMENT_CONTAINER)
+            if sub_container:
+                # Try to expand sub-comments
+                show_more = await sub_container.query_selector(Selectors.SUB_COMMENT_SHOW_MORE)
+                if show_more:
+                    try:
+                        await show_more.click()
+                        await random_delay(0.5, 1.0)
+                    except Exception:
+                        pass
+
+                sub_items = await sub_container.query_selector_all(Selectors.COMMENT_ITEM)
+                for sub_item in sub_items[:10]:  # Limit sub-comments to 10
+                    try:
+                        sub_comment = await self._extract_single_comment(sub_item)
+                        if sub_comment:
+                            sub_comments.append(sub_comment)
+                    except Exception:
+                        continue
+
+            return Comment(
+                comment_id=comment_id,
+                content=content,
+                author=author,
+                likes=likes,
+                create_time=create_time,
+                sub_comments=sub_comments,
+            )
+
+        except Exception:
+            return None

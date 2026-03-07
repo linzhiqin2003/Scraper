@@ -276,9 +276,9 @@ def interactive_login(
                 last_observed = current.status
 
                 if current.status == LoginStatus.LOGGED_IN:
-                    # Double-check via target page to avoid false positives.
+                    # Double-check via home page (more reliable than search page).
                     verified = check_login_status(page, navigate=True)
-                    if verified.status == LoginStatus.LOGGED_IN:
+                    if verified.status in (LoginStatus.LOGGED_IN, LoginStatus.UNKNOWN):
                         _save_storage_state(page)
                         return AuthStatus(
                             status=LoginStatus.LOGGED_IN,

@@ -376,6 +376,14 @@ class ArticleScraper:
         current = page.url
         if url not in current:
             page.goto(url, wait_until="domcontentloaded", timeout=Timeouts.NAVIGATION)
+
+        # Always wait for the page to settle — zhuanlan does client-side routing
+        # that continues after domcontentloaded; querying elements mid-navigation
+        # raises "Page.content: Unable to retrieve content because the page is
+        # navigating and changing the content."
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except PlaywrightTimeout:
             page.wait_for_timeout(3000)
 
         if not wait_for_unblock(page, timeout_ms=60_000):

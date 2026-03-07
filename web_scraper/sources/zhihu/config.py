@@ -7,7 +7,7 @@ SOURCE_NAME = "zhihu"
 
 # URLs
 BASE_URL = "https://www.zhihu.com"
-SEARCH_URL = f"{BASE_URL}/search"
+SEARCH_URL = BASE_URL  # Home page is more reliable for login detection
 LOGIN_URL = (
     "https://www.zhihu.com/signin"
     "?next=%2Fsearch%3Ftype%3Dcontent%26q%3Dtransformer"

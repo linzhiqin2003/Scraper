@@ -102,6 +102,73 @@ class WeiboDetailResponse(BaseModel):
     }
 
 
+class WeiboRetweetedPost(BaseModel):
+    """Simplified retweet (转发) info embedded in a profile post."""
+
+    id: Optional[str] = Field(default=None, description="Retweeted post ID")
+    mblogid: Optional[str] = Field(default=None, description="Retweeted post short ID")
+    user_id: Optional[str] = Field(default=None, description="Original author user ID")
+    user_screen_name: Optional[str] = Field(default=None, description="Original author name")
+    created_at: Optional[str] = Field(default=None, description="Original post time (raw string)")
+    text_raw: Optional[str] = Field(default=None, description="Original post plain text")
+
+
+class WeiboPost(BaseModel):
+    """A single Weibo post from a user's profile timeline."""
+
+    id: Optional[str] = Field(default=None, description="Numeric post ID")
+    mid: Optional[str] = Field(default=None, description="Weibo MID")
+    mblogid: Optional[str] = Field(default=None, description="Short post ID used in URL")
+    detail_url: Optional[str] = Field(default=None, description="Full detail URL")
+
+    user_id: Optional[str] = Field(default=None, description="Author user ID")
+    user_screen_name: Optional[str] = Field(default=None, description="Author display name")
+
+    created_at: Optional[str] = Field(default=None, description="Post time (raw string from API)")
+    source: Optional[str] = Field(default=None, description="Post source device/app")
+    region_name: Optional[str] = Field(default=None, description="IP region text, e.g. 发布于 北京")
+
+    text_raw: str = Field(default="", description="Post plain text (no HTML)")
+    is_long_text: bool = Field(default=False, description="Whether post has truncated long text")
+
+    reposts_count: Optional[int] = Field(default=None, description="Repost count")
+    comments_count: Optional[int] = Field(default=None, description="Comment count")
+    attitudes_count: Optional[int] = Field(default=None, description="Like count")
+
+    pic_ids: List[str] = Field(default_factory=list, description="Picture IDs attached to the post")
+    pic_num: int = Field(default=0, description="Number of pictures")
+
+    is_top: bool = Field(default=False, description="Whether post is pinned to top")
+    is_ad: bool = Field(default=False, description="Whether post is an advertisement")
+    retweeted: Optional[WeiboRetweetedPost] = Field(default=None, description="Retweeted post info if this is a repost")
+
+
+class WeiboProfileResponse(BaseModel):
+    """Response payload for a user's profile posts."""
+
+    uid: str = Field(description="Target user ID")
+    screen_name: Optional[str] = Field(default=None, description="User display name")
+    total_posts: Optional[int] = Field(default=None, description="Total posts on user's profile")
+
+    mode: str = Field(description="Fetch mode: 'latest', 'time_range', 'keyword', 'time_range+keyword'")
+    keyword: Optional[str] = Field(default=None, description="Keyword filter (q param)")
+    start_time: Optional[int] = Field(default=None, description="Unix timestamp range start")
+    end_time: Optional[int] = Field(default=None, description="Unix timestamp range end")
+    total_in_range: Optional[int] = Field(default=None, description="Total posts matching filters")
+
+    posts: List[WeiboPost] = Field(default_factory=list, description="Fetched post list")
+    pages_fetched: int = Field(default=0, description="Number of API pages fetched")
+    since_id: Optional[str] = Field(default=None, description="Cursor for next page (latest mode)")
+
+    scraped_at: datetime = Field(default_factory=datetime.now, description="Scrape timestamp")
+
+    model_config = {
+        "json_encoders": {
+            datetime: lambda value: value.isoformat() if value else None,
+        }
+    }
+
+
 class WeiboHotItem(BaseModel):
     """A single item from Weibo hot-search list."""
 

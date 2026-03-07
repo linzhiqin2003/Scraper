@@ -109,8 +109,17 @@ class Selectors:
     NOTE_ERROR = 'text=当前笔记暂时无法浏览'
 
     # Comments
-    COMMENTS_CONTAINER = '#comments'
-    COMMENT_ITEM = '.comment-item, [class*="comment"]'
+    COMMENTS_CONTAINER = '#noteContainer .comments-container, .comments-container, .comment-list'
+    COMMENTS_TOGGLE = '.show-more, .expand-comments, [class*="show-more"], [class*="expand"]'
+    COMMENT_ITEM = '.comment-inner, .comment-item, [class*="commentItem"], [class*="comment-item"]'
+    COMMENT_CONTENT = '.content, .comment-content, [class*="content"]'
+    COMMENT_AUTHOR_NAME = '.name, .author-name, .nickname, [class*="author"] .name'
+    COMMENT_AUTHOR_LINK = 'a[href*="/user/profile/"]'
+    COMMENT_AUTHOR_AVATAR = '.avatar img, img.avatar, [class*="avatar"] img'
+    COMMENT_LIKES = '.like-count, .likes, [class*="like"] .count, [class*="like"] span'
+    COMMENT_TIME = '.time, .date, [class*="time"]'
+    SUB_COMMENT_CONTAINER = '.sub-comments, .reply-list, [class*="sub-comment"], [class*="reply"]'
+    SUB_COMMENT_SHOW_MORE = '.show-more-reply, [class*="more-reply"], [class*="show-more"]'
 
     # Captcha/Login detection
     CAPTCHA_SLIDER = '.slider, [class*="captcha"], [class*="verification"]'

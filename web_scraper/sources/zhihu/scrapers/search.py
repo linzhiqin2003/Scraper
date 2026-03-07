@@ -374,6 +374,10 @@ class SearchScraper:
         current = page.url
         if "search" not in current or query not in current:
             page.goto(url, wait_until="domcontentloaded", timeout=Timeouts.NAVIGATION)
+
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except PlaywrightTimeout:
             page.wait_for_timeout(3000)
 
         # Handle blocking

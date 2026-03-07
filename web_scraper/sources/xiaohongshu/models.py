@@ -25,6 +25,20 @@ class NoteCard(BaseModel):
     note_type: str = Field(default="normal", description="Note type: normal/video")
 
 
+class Comment(BaseModel):
+    """Comment information."""
+
+    comment_id: str = Field(..., description="Comment ID")
+    content: str = Field(..., description="Comment content")
+    author: Author = Field(..., description="Comment author")
+    likes: int = Field(default=0, description="Number of likes")
+    create_time: Optional[datetime] = Field(default=None, description="Comment time")
+    sub_comments: List["Comment"] = Field(
+        default_factory=list, description="Sub-comments/replies"
+    )
+    ip_location: str = Field(default="", description="IP location")
+
+
 class Note(BaseModel):
     """Full note information."""
 
@@ -40,6 +54,9 @@ class Note(BaseModel):
     comments_count: int = Field(default=0, description="Number of comments")
     collects: int = Field(default=0, description="Number of collections")
     shares: int = Field(default=0, description="Number of shares")
+    comments: List["Comment"] = Field(default_factory=list, description="Comments list")
+    ip_location: str = Field(default="", description="IP location")
+    note_type: str = Field(default="normal", description="Note type: normal/video")
 
 
 class User(BaseModel):
@@ -55,19 +72,6 @@ class User(BaseModel):
     following: int = Field(default=0, description="Number of following")
     likes: int = Field(default=0, description="Total likes received")
     notes_count: int = Field(default=0, description="Number of notes")
-
-
-class Comment(BaseModel):
-    """Comment information."""
-
-    comment_id: str = Field(..., description="Comment ID")
-    content: str = Field(..., description="Comment content")
-    author: Author = Field(..., description="Comment author")
-    likes: int = Field(default=0, description="Number of likes")
-    create_time: Optional[datetime] = Field(default=None, description="Comment time")
-    sub_comments: List["Comment"] = Field(
-        default_factory=list, description="Sub-comments/replies"
-    )
 
 
 class SearchResult(BaseModel):

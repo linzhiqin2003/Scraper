@@ -64,13 +64,13 @@ All sources follow a standardized command structure:
 | Command | Function | Sources |
 |---------|----------|---------|
 | `login` | Interactive login | Reuters, XHS, Zhihu, Weibo |
-| `status` | Check auth/cookie status | All 6 sources |
+| `status` | Check auth/cookie status | All 8 sources |
 | `logout` | Clear session | Reuters, XHS, Zhihu, Weibo |
 | `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu |
-| `search` | Search content | All 6 sources |
-| `fetch` | Fetch single item by URL/ID | All 6 sources |
+| `search` | Search content | All 8 sources |
+| `fetch` | Fetch single item by URL/ID | All 8 sources |
 | `browse` | Browse/discover content | Reuters, XHS, WSJ |
-| `options` | Show available filters/categories | All 6 sources |
+| `options` | Show available filters/categories | All 8 sources |
 
 Standard parameters: `-n/--limit`, `-o/--output`, `--no-save`, `--shallow/-s`
 
@@ -133,6 +133,28 @@ scraper weibo logout                       # Clear session
 scraper weibo search "keyword" -n 20       # Search posts
 scraper weibo hot -n 50                    # Fetch hot-search topics
 scraper weibo fetch <url>                  # Fetch post detail
+
+# Serper (Google Search API)
+# Requires: SERPER_API_KEY env var (get at https://serper.dev)
+scraper serper status                                    # Check API key
+scraper serper search "Python asyncio" -n 10             # Web search
+scraper serper search "AI news" --type news --time week  # News search
+scraper serper search "query" --shallow                  # Search only, no content fetch
+scraper serper search "query" --country cn --lang zh-cn  # Localized search
+scraper serper fetch <url>                               # Fetch any URL content
+scraper serper options                                   # Show options
+
+# Google Custom Search
+# Requires: GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX env vars
+# API key: https://console.cloud.google.com  |  CX: https://programmablesearchengine.google.com
+scraper google status                                     # Check API config
+scraper google search "machine learning" -n 5             # Web search
+scraper google search "Python" --date-restrict week       # With date filter
+scraper google search "site:arxiv.org" --sort date        # Sort by date
+scraper google search "query" --shallow                   # Search only, no content fetch
+scraper google search "query" --lang zh-cn                # Language filter
+scraper google fetch <url>                                # Fetch any URL content
+scraper google options                                    # Show options + setup guide
 ```
 
 ### Aliases (backward compatibility)
@@ -183,6 +205,16 @@ Some sources have unique commands beyond the standard set:
 - `zhihu_fetch_article` - Fetch full article/answer content (multi-strategy extraction)
 - `zhihu_get_search_types` - Get available search type filters
 
+### Serper
+- `serper_search` - Search web/news via Serper API (requires SERPER_API_KEY)
+- `serper_fetch` - Fetch full content from any URL (curl-cffi → httpx → Playwright)
+- `serper_get_options` - Get available search options (types, time ranges, countries, languages)
+
+### Google Custom Search
+- `google_search` - Search web via Google CSE API (requires GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX)
+- `google_fetch` - Fetch full content from any URL (curl-cffi → httpx → Playwright)
+- `google_get_options` - Get available search options and setup instructions
+
 ## Data Storage
 
 ```
@@ -232,6 +264,10 @@ register_source(SourceConfig(
 - WSJ: Synchronous httpx (lightweight HTTP client, no browser needed)
 - Scholar: Synchronous httpx + BeautifulSoup (HTML parsing, no API available)
 - Zhihu: Pure httpx API (preferred) or Playwright via CDP (fallback, connects to user's real Chrome)
+
+### MCP Server 修改原则
+
+**不要主动修改 `mcp_server.py`**，除非用户明确要求。新 source 的 MCP 工具只在用户明确说"加到 MCP"时才添加。
 
 ### Anti-Detection
 
