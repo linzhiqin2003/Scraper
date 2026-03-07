@@ -1,10 +1,10 @@
 # Web Scraper
 
-统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书和抖音内容爬取，支持 CLI 和 MCP Server 两种使用方式。
+统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书、抖音、Serper、Google CSE、携程、大众点评内容爬取，支持 CLI 和 MCP Server 两种使用方式。
 
 ## Features
 
-- **7 源支持**: Reuters、WSJ、Google Scholar、Weibo、Zhihu、Xiaohongshu、**Douyin**
+- **11 源支持**: Reuters、WSJ、Scholar、Weibo、Zhihu、XHS、Douyin、Serper、Google CSE、Ctrip、Dianping
 - **统一 CLI**: `scraper <source> <command>` 子命令模式，所有源命令标准化
 - **MCP Server**: 可作为 LLM Agent 工具使用（`scraper-mcp`）
 - **反检测**: Playwright + 真实 Chrome + Stealth 脚本 + UA 池 + 代理池
@@ -275,6 +275,61 @@ scraper-mcp
 - `xhs_fetch_note` - Fetch a specific note
 - `xhs_get_categories` - Get available categories
 
+### Serper (Google Search API)
+
+```bash
+# Requires: SERPER_API_KEY env var (https://serper.dev)
+scraper serper status                                    # Check API key
+scraper serper search "Python asyncio" -n 10             # Web search
+scraper serper search "AI news" --type news --time week  # News search
+scraper serper search "query" --country cn --lang zh-cn  # Localized search
+scraper serper fetch <url>                               # Fetch URL content
+scraper serper options                                   # Show options
+```
+
+### Google Custom Search
+
+```bash
+# Requires: GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX env vars
+scraper google status                                    # Check API config
+scraper google search "machine learning" -n 5            # Web search
+scraper google search "query" --date-restrict week       # Date filter
+scraper google fetch <url>                               # Fetch URL content
+scraper google options                                   # Show options + setup guide
+```
+
+### Ctrip (携程)
+
+```bash
+# Import cookies from browser
+scraper ctrip import-cookies ~/Downloads/ctrip_cookies.txt
+
+# Check login status
+scraper ctrip status
+
+# Search hotels
+scraper ctrip search "上海" --type hotel -n 10
+
+# Fetch hotel detail
+scraper ctrip fetch <url>
+```
+
+### Dianping (大众点评)
+
+```bash
+# Import cookies from browser
+scraper dianping import-cookies ~/Downloads/dianping_cookies.txt
+
+# Check login status
+scraper dianping status
+
+# Search shops
+scraper dianping search "北京 烤鸭" -n 10
+
+# Fetch shop detail
+scraper dianping fetch <url>
+```
+
 > Douyin comment fetching is CLI-only (not exposed as MCP tool).
 
 ### Claude Code Configuration
@@ -312,8 +367,18 @@ scraper-mcp
 ├── xiaohongshu/
 │   ├── cookies.json          # Session cookies
 │   └── exports/
-└── douyin/
-    ├── browser_state.json    # Session (cookies from browser export)
+├── douyin/
+│   ├── browser_state.json    # Session (cookies from browser export)
+│   └── exports/
+├── serper/
+│   └── exports/
+├── google/
+│   └── exports/
+├── ctrip/
+│   ├── browser_state.json
+│   └── exports/
+└── dianping/
+    ├── browser_state.json
     └── exports/
 ```
 
@@ -344,7 +409,11 @@ WebScraper/
 │   │   ├── zhihu/              # Zhihu (httpx API + Playwright CDP)
 │   │   ├── weibo/              # Weibo (httpx API + Playwright fallback)
 │   │   ├── xiaohongshu/        # Xiaohongshu (async, Playwright)
-│   │   └── douyin/             # Douyin (sync, Playwright response interception)
+│   │   ├── douyin/             # Douyin (sync, Playwright response interception)
+│   │   ├── serper/             # Serper Google Search API
+│   │   ├── google/             # Google Custom Search API
+│   │   ├── ctrip/              # Ctrip 携程 (Playwright)
+│   │   └── dianping/           # Dianping 大众点评 (Playwright)
 │   │
 │   └── converters/             # Content converters
 │       └── markdown.py
