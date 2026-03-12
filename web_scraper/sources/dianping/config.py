@@ -1,4 +1,6 @@
 """Configuration and constants for Dianping scraper."""
+from urllib.parse import quote
+
 from ...core.browser import DEFAULT_DATA_DIR
 
 SOURCE_NAME = "dianping"
@@ -23,6 +25,7 @@ DEFAULT_CITY_ID = 1
 DEFAULT_SOURCE_ID = 1
 DEFAULT_PAGE_SIZE = 10
 DEFAULT_TIMEOUT = 20.0
+LOGIN_TIMEOUT_SECONDS = 300
 
 AUTH_COOKIE_NAMES = {
     "dper",
@@ -68,3 +71,17 @@ def build_home_feed_payload(
             "longitude": 0,
         },
     }
+
+
+def build_search_url(
+    query: str,
+    city_id: int = DEFAULT_CITY_ID,
+    channel: int = 0,
+    page: int = 1,
+) -> str:
+    """Build a Dianping search URL."""
+    encoded_query = quote(query)
+    url = f"{WWW_BASE_URL}/search/keyword/{city_id}/{channel}_{encoded_query}"
+    if page > 1:
+        url += f"/p{page}"
+    return url

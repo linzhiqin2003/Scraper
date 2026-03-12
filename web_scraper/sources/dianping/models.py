@@ -76,6 +76,27 @@ class DianpingShopDeal(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Deal tags")
 
 
+class DianpingRecommendedDish(BaseModel):
+    """Recommended dish parsed from shop detail SSR."""
+
+    name: str = Field(description="Dish name")
+    recommend_count: Optional[int] = Field(default=None, description="Number of recommendations")
+    image_url: Optional[str] = Field(default=None, description="Dish image URL")
+    url: Optional[str] = Field(default=None, description="Dish detail URL")
+
+
+class DianpingShopComment(BaseModel):
+    """Preview comment shown on the shop detail page."""
+
+    author_name: str = Field(description="Comment author")
+    publish_time: Optional[str] = Field(default=None, description="Display time")
+    rating_text: Optional[str] = Field(default=None, description="Short rating text")
+    price_text: Optional[str] = Field(default=None, description="Per-person text in comment")
+    content: str = Field(description="Comment content")
+    image_count: int = Field(default=0, description="Number of attached images in preview")
+    like_count: Optional[int] = Field(default=None, description="Like count")
+
+
 class DianpingShopDetail(BaseModel):
     """Shop detail parsed from Dianping shop page."""
 
@@ -97,6 +118,15 @@ class DianpingShopDetail(BaseModel):
     status_text: Optional[str] = Field(default=None, description="Shop status text")
     cover_image: Optional[str] = Field(default=None, description="Cover image URL")
     deals: List[DianpingShopDeal] = Field(default_factory=list, description="Deals")
+    recommended_dishes: List[DianpingRecommendedDish] = Field(
+        default_factory=list,
+        description="Recommended dishes shown on page",
+    )
+    comment_count: Optional[int] = Field(default=None, description="Total review count")
+    comments: List[DianpingShopComment] = Field(
+        default_factory=list,
+        description="Preview comments shown on page",
+    )
     cache_keys: List[str] = Field(default_factory=list, description="Embedded cache keys")
 
 

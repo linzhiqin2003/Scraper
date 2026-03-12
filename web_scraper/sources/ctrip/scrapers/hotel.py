@@ -3,6 +3,7 @@
 - HotelSearchScraper: Playwright response interception for fetchHotelList
   (bypasses phantom-token anti-bot protection).
 - HotelApiScraper: pure httpx for recommendations, browse history, city list, filters.
+- HotelDetailScraper: Playwright DOM parsing for hotel detail pages.
 """
 from __future__ import annotations
 
@@ -16,7 +17,9 @@ from typing import List, Optional
 import httpx
 
 from ..config import (
+    BRAND_FILTERS,
     CITY_MAP,
+    CTRIP_RATE_LIMIT,
     DEFAULT_HEADERS,
     HOTEL_AD_URL,
     HOTEL_BROWSE_URL,
@@ -29,6 +32,7 @@ from ..config import (
     SORT_FILTERS,
     STAR_FILTERS,
     hotel_head,
+    retry_on_error,
 )
 from ..cookies import get_cookies_path, get_guid, load_cookies, load_playwright_cookies
 from ..models import HotelCard, HotelCity, HotelSearchResult
@@ -67,6 +71,8 @@ class HotelSearchScraper:
         free_cancel: bool = False,
         price_min: int | None = None,
         price_max: int | None = None,
+        keyword: str = "",
+        brands: list[str] | None = None,
     ) -> HotelSearchResult:
         """Search hotels via Playwright (SSR + XHR interception).
 
@@ -74,6 +80,7 @@ class HotelSearchScraper:
         fetchHotelList XHR triggered by scrolling.
         """
         from playwright.sync_api import sync_playwright
+        from urllib.parse import quote
 
         city_info = CITY_MAP.get(city_name)
         if city_info is None:
@@ -90,6 +97,8 @@ class HotelSearchScraper:
             f"&adult={adult}&crn={rooms}&curr=CNY"
             f"&sortId={sort_id}"
         )
+        if keyword:
+            url += f"&keyword={quote(keyword)}"
 
         xhr_pages: list[dict] = []
         lock = threading.Lock()
@@ -202,20 +211,33 @@ class HotelApiScraper:
             self.cookies = httpx.Cookies()
             self._guid = ""
 
+        from ....core.rate_limiter import RateLimiter, RateLimiterConfig
+        self._rate_limiter = RateLimiter(RateLimiterConfig(**CTRIP_RATE_LIMIT))
+
     # ─────────────────────────────────────────
     # Internals
     # ─────────────────────────────────────────
 
     def _post(self, url: str, payload: dict) -> dict:
+        self._rate_limiter.wait()
         headers = {
             **DEFAULT_HEADERS,
             "referer": "https://hotels.ctrip.com/",
             "origin": "https://hotels.ctrip.com",
         }
-        with httpx.Client(cookies=self.cookies, follow_redirects=True, timeout=15) as client:
-            resp = client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+        try:
+            with httpx.Client(cookies=self.cookies, follow_redirects=True, timeout=15) as client:
+                resp = client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
+                result = resp.json()
+                self._rate_limiter.record_success()
+                return result
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                self._rate_limiter.record_rate_limit()
+            raise
+        except Exception:
+            raise
 
     def _hotel_head(self, checkin: str = "", checkout: str = "") -> dict:
         return hotel_head(self._guid, checkin, checkout)
@@ -228,6 +250,7 @@ class HotelApiScraper:
         free_cancel: bool,
         price_min: int | None,
         price_max: int | None,
+        brands: list[str] | None = None,
     ) -> list[dict]:
         filters = []
 
@@ -266,6 +289,12 @@ class HotelApiScraper:
                     "value": f"{mn}|{mx}",
                     "subType": "2",
                 })
+
+        # Brands
+        for brand_name in (brands or []):
+            brand_f = BRAND_FILTERS.get(brand_name)
+            if brand_f:
+                filters.append(brand_f)
 
         return filters
 
@@ -328,6 +357,7 @@ class HotelApiScraper:
     # Public: search
     # ─────────────────────────────────────────
 
+    @retry_on_error()
     def search(
         self,
         city_name: str,
@@ -342,6 +372,8 @@ class HotelApiScraper:
         free_cancel: bool = False,
         price_min: int | None = None,
         price_max: int | None = None,
+        keyword: str = "",
+        brands: list[str] | None = None,
     ) -> HotelSearchResult:
         """Search hotels via fetchHotelList API (no browser, no auth required)."""
         city_info = CITY_MAP.get(city_name)
@@ -352,7 +384,7 @@ class HotelApiScraper:
             )
         city_id, country_id, _ = city_info
 
-        filters = self._build_filters(sort, stars, breakfast, free_cancel, price_min, price_max)
+        filters = self._build_filters(sort, stars, breakfast, free_cancel, price_min, price_max, brands)
         hotels: List[HotelCard] = []
         session_id = ""
         shown_ids: list[str] = []
@@ -363,7 +395,7 @@ class HotelApiScraper:
                 "destination": {
                     "type": 1,
                     "geo": {"cityId": city_id, "countryId": country_id, "provinceId": 0, "districtId": 0},
-                    "keyword": {"word": ""},
+                    "keyword": {"word": keyword},
                 },
                 "checkInfo": {"checkIn": checkin, "checkOut": checkout},
                 "guest": {"adult": adult, "children": 0, "ages": "", "roomsNum": rooms},
@@ -404,6 +436,7 @@ class HotelApiScraper:
     # Public: recommendations / history / cities
     # ─────────────────────────────────────────
 
+    @retry_on_error()
     def get_recommendations(
         self,
         city_id: int,
@@ -501,3 +534,158 @@ class HotelApiScraper:
             "head": self._hotel_head(checkin, checkout),
         }
         return self._post(HOTEL_FILTER_URL, payload)
+
+
+class HotelDetailScraper:
+    """Fetch detailed hotel info from the detail page via Playwright."""
+
+    def __init__(self, cookies_path: Path | None = None, headless: bool = True):
+        self._cookies_path = cookies_path or get_cookies_path()
+        self.headless = headless
+
+    def fetch(
+        self,
+        hotel_id: str,
+        city_id: int,
+        checkin: str,
+        checkout: str,
+    ) -> "HotelDetail":
+        from playwright.sync_api import sync_playwright
+        from ..models import HotelDetail, HotelRoom
+
+        url = (
+            f"{HOTEL_DETAIL_URL}?hotelId={hotel_id}&cityId={city_id}"
+            f"&checkIn={checkin}&checkOut={checkout}&adult=1&children=0&crn=1&curr=CNY"
+        )
+
+        pw_cookies = load_playwright_cookies(self._cookies_path)
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=self.headless, channel="chrome")
+            ctx = browser.new_context(
+                user_agent=DEFAULT_HEADERS["user-agent"],
+                locale="zh-CN",
+                extra_http_headers={"accept-language": "zh-CN,zh;q=0.9"},
+            )
+            if pw_cookies:
+                ctx.add_cookies(pw_cookies)
+            page = ctx.new_page()
+
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Wait for hotel name to render
+                page.wait_for_selector(
+                    "h1, .hotel_info_name, [class*='hotelName']",
+                    timeout=15000,
+                )
+                page.wait_for_timeout(2000)
+
+                # Try SSR data first
+                ssr = page.evaluate("""() => {
+                    try {
+                        const nd = window.__NEXT_DATA__ || {};
+                        return nd.props?.pageProps || {};
+                    } catch { return {}; }
+                }""")
+
+                # Extract from SSR or DOM
+                hotel_info = ssr.get("hotelDetail", {}) or ssr.get("hotelInfo", {}) or {}
+                basic = hotel_info.get("basicInfo", {}) or {}
+                comment_info = hotel_info.get("commentInfo", {}) or {}
+
+                # DOM fallback for basic info
+                dom_data = page.evaluate("""() => {
+                    const text = (sel) => {
+                        const el = document.querySelector(sel);
+                        return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '';
+                    };
+                    const texts = (sel) => Array.from(document.querySelectorAll(sel))
+                        .map(el => el.textContent.replace(/\\s+/g, ' ').trim())
+                        .filter(Boolean);
+
+                    return {
+                        name: text('h1') || text('[class*="hotelName"]') || '',
+                        score: text('[class*="score"]') || '',
+                        scoreDesc: text('[class*="commentDesc"]') || text('[class*="comment-desc"]') || '',
+                        commentCount: text('[class*="commentNum"]') || text('[class*="comment-num"]') || '',
+                        address: text('[class*="address"]') || text('[class*="hotelAddress"]') || '',
+                        tags: texts('[class*="hotelTag"] span, [class*="hotel-tag"] span'),
+                        facilities: texts('[class*="facility"] li, [class*="facilit"] span, [class*="amenity"] span'),
+                        images: Array.from(document.querySelectorAll('[class*="photo"] img, [class*="gallery"] img'))
+                            .map(img => img.src || img.dataset?.src || '')
+                            .filter(s => s.startsWith('http'))
+                            .slice(0, 10),
+                    };
+                }""")
+
+                # Extract rooms from DOM
+                room_data = page.evaluate("""() => {
+                    const rooms = [];
+                    document.querySelectorAll('[class*="room-list"] tr, [class*="roomItem"], [class*="room_item"]').forEach(row => {
+                        const text = (sel) => {
+                            const el = row.querySelector(sel);
+                            return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '';
+                        };
+                        const texts = (sel) => Array.from(row.querySelectorAll(sel))
+                            .map(el => el.textContent.replace(/\\s+/g, ' ').trim())
+                            .filter(Boolean);
+                        const name = text('[class*="room_type_name"], [class*="roomName"], .room-name');
+                        if (!name) return;
+                        rooms.push({
+                            room_name: name,
+                            bed_type: text('[class*="bed"], [class*="bedType"]') || null,
+                            area: text('[class*="area"]') || null,
+                            breakfast: text('[class*="breakfast"]') || null,
+                            price: text('[class*="price"]') || null,
+                            cancel_policy: text('[class*="cancel"]') || null,
+                            tags: texts('[class*="tag"] span'),
+                        });
+                    });
+                    return rooms;
+                }""")
+
+                # Build model
+                name = basic.get("hotelName") or dom_data.get("name", "")
+                star_val = basic.get("star") or None
+                if isinstance(star_val, str):
+                    m = re.search(r"\d+", star_val)
+                    star_val = int(m.group()) if m else None
+
+                rooms = [
+                    HotelRoom(
+                        room_name=r.get("room_name", ""),
+                        bed_type=r.get("bed_type"),
+                        area=r.get("area"),
+                        breakfast=r.get("breakfast"),
+                        price=r.get("price"),
+                        cancel_policy=r.get("cancel_policy"),
+                        tags=r.get("tags", []),
+                    )
+                    for r in (room_data or [])
+                    if r.get("room_name")
+                ]
+
+                return HotelDetail(
+                    hotel_id=hotel_id,
+                    name=name,
+                    name_en=basic.get("hotelNameEn") or None,
+                    star=star_val,
+                    score=comment_info.get("commentScore") or dom_data.get("score") or None,
+                    score_desc=comment_info.get("commentDescription") or dom_data.get("scoreDesc") or None,
+                    comment_count=comment_info.get("commenterNumber") or dom_data.get("commentCount") or None,
+                    address=basic.get("address") or dom_data.get("address") or None,
+                    phone=basic.get("phone") or None,
+                    opening_year=basic.get("openingYear") or None,
+                    renovation_year=basic.get("renovationYear") or None,
+                    room_count=basic.get("roomCount") or None,
+                    tags=dom_data.get("tags", []),
+                    facilities=dom_data.get("facilities", []),
+                    description=basic.get("description") or None,
+                    images=dom_data.get("images", []),
+                    rooms=rooms,
+                    detail_url=url,
+                )
+            finally:
+                page.close()
+                ctx.close()
+                browser.close()

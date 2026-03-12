@@ -8,9 +8,16 @@ from typing import Optional
 import typer
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from ...core.browser import get_state_path
 from ...core.display import ColumnDef, console, display_detail, display_saved, display_search_results
 from ...core.storage import JSONStorage
 from .config import SOURCE_NAME, DEFAULT_CITY_ID, DEFAULT_PAGE_SIZE
+from .auth import (
+    LoginStatus as BrowserLoginStatus,
+    check_saved_session,
+    clear_session,
+    interactive_login,
+)
 from .cookies import (
     get_cookies_path,
     load_cookies,
@@ -78,8 +85,34 @@ def import_cookies(
 
 
 @app.command()
+def login(
+    timeout: int = typer.Option(300, "--timeout", "-t", help="等待手动验证完成的秒数"),
+    headless: bool = typer.Option(False, "--headless/--no-headless", help="Run browser in headless mode"),
+    query: str = typer.Option("瑞幸", "--query", help="用于建立搜索会话的测试关键词"),
+) -> None:
+    """Open a real browser, let the user pass verification, and save browser session."""
+    console.print("[cyan]正在打开大众点评浏览器会话…[/]")
+    console.print("[dim]如果出现验证页，请在浏览器里手动完成。搜索结果可见后会自动保存会话。[/]")
+
+    result = interactive_login(
+        headless=headless,
+        timeout_seconds=timeout,
+        query=query,
+    )
+    if result.status == BrowserLoginStatus.LOGGED_IN:
+        console.print(f"[green]✓ {result.message}[/green]")
+        console.print(f"[dim]当前页：{result.current_url}[/dim]")
+        return
+
+    console.print(f"[red]✗ {result.message}[/red]")
+    if result.current_url:
+        console.print(f"[dim]当前页：{result.current_url}[/dim]")
+    raise typer.Exit(1)
+
+
+@app.command()
 def status() -> None:
-    """Check whether imported cookies are still valid."""
+    """Check cookie API status and saved browser search session."""
     _require_cookies()
 
     try:
@@ -94,10 +127,33 @@ def status() -> None:
     console.print("[dim]正在验证大众点评登录状态…[/dim]")
     ok, msg = check_cookies_valid(cookies)
     if ok:
-        console.print(f"[green]✓ {msg}[/green]")
+        console.print(f"[green]✓ Cookie/API: {msg}[/green]")
     else:
-        console.print(f"[red]✗ {msg}[/red]")
-        raise typer.Exit(1)
+        console.print(f"[red]✗ Cookie/API: {msg}[/red]")
+
+    state_file = get_state_path(SOURCE_NAME)
+    if state_file.exists():
+        console.print("[dim]正在验证浏览器搜索会话…[/dim]")
+        browser_status = check_saved_session(headless=True)
+        if browser_status.status == BrowserLoginStatus.LOGGED_IN:
+            console.print(f"[green]✓ Browser: {browser_status.message}[/green]")
+        else:
+            console.print(f"[yellow]⚠ Browser: {browser_status.message}[/yellow]")
+    else:
+        console.print(f"[yellow]⚠ Browser: 未找到已保存会话，运行 'scraper {SOURCE_NAME} login' 可建立搜索态[/yellow]")
+
+    if ok:
+        return
+    raise typer.Exit(1)
+
+
+@app.command()
+def logout() -> None:
+    """Clear saved browser session."""
+    if clear_session():
+        console.print("[green]✓ 已清除浏览器会话[/green]")
+    else:
+        console.print("[yellow]未找到浏览器会话，无需清除[/yellow]")
 
 
 @app.command()
@@ -172,10 +228,20 @@ def search(
     limit: int = typer.Option(10, "--limit", "-n", help="最大结果数"),
     city_id: int = typer.Option(DEFAULT_CITY_ID, "--city-id", help="City ID"),
     channel: int = typer.Option(0, "--channel", help="频道 ID，0 为不限，10 为美食"),
+    browser: bool = typer.Option(False, "--browser", help="强制使用浏览器会话搜索"),
+    manual: bool = typer.Option(False, "--manual", help="搜索前允许人工处理验证页，需要 --no-headless"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="浏览器模式是否无头"),
+    timeout: int = typer.Option(120, "--timeout", help="浏览器模式等待结果页的秒数"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save JSON to file"),
 ) -> None:
-    """Search Dianping shop results by parsing SSR HTML."""
+    """Search Dianping shop results by parsing SSR HTML, with browser-session fallback."""
     _require_cookies()
+    if manual and headless:
+        console.print("[red]--manual 需要配合 --no-headless 使用[/red]")
+        raise typer.Exit(1)
+    if browser and not manual and not get_state_path(SOURCE_NAME).exists():
+        console.print(f"[red]未找到浏览器搜索会话，请先运行 'scraper {SOURCE_NAME} login'[/red]")
+        raise typer.Exit(1)
 
     try:
         scraper = SearchScraper()
@@ -190,16 +256,53 @@ def search(
     ) as progress:
         progress.add_task(f"搜索“{query}”…", total=None)
         try:
-            results = scraper.search(
-                query=query,
-                city_id=city_id,
-                channel=channel,
-                page=page,
-                limit=limit,
-            )
+            if browser:
+                if manual:
+                    console.print("[dim]浏览器已打开后，如遇验证页请手动完成。结果页出现后会自动继续。[/dim]")
+                results = scraper.search_with_browser(
+                    query=query,
+                    city_id=city_id,
+                    channel=channel,
+                    page=page,
+                    limit=limit,
+                    headless=headless,
+                    timeout_seconds=timeout,
+                )
+            else:
+                results = scraper.search(
+                    query=query,
+                    city_id=city_id,
+                    channel=channel,
+                    page=page,
+                    limit=limit,
+                )
         except Exception as e:
-            console.print(f"[red]搜索失败：{e}[/red]")
-            raise typer.Exit(1)
+            if "验证页" in str(e):
+                can_fallback = manual or get_state_path(SOURCE_NAME).exists()
+                if can_fallback:
+                    console.print("[yellow]HTTP 搜索触发验证，正在切换到浏览器会话模式…[/yellow]")
+                    if manual:
+                        console.print("[dim]如浏览器停在验证页，请手动完成后等待结果页出现。[/dim]")
+                    try:
+                        results = scraper.search_with_browser(
+                            query=query,
+                            city_id=city_id,
+                            channel=channel,
+                            page=page,
+                            limit=limit,
+                            headless=headless,
+                            timeout_seconds=timeout,
+                        )
+                    except Exception as browser_exc:
+                        console.print(f"[red]浏览器搜索失败：{browser_exc}[/red]")
+                        raise typer.Exit(1)
+                else:
+                    console.print(f"[red]搜索失败：{e}[/red]")
+                    console.print(f"[dim]建议先运行 'scraper {SOURCE_NAME} login' 建立浏览器搜索会话[/dim]")
+                    raise typer.Exit(1)
+            else:
+                console.print(f"[red]搜索失败：{e}[/red]")
+                raise typer.Exit(1)
 
     if not results:
         console.print("[yellow]未找到结果[/yellow]")
@@ -236,6 +339,7 @@ def search(
 @app.command()
 def shop(
     target: str = typer.Argument(..., help="商户 URL 或 shopUuid"),
+    comment_limit: int = typer.Option(5, "--comment-limit", min=1, help="返回首屏评论条数"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save JSON to file"),
 ) -> None:
     """Fetch a Dianping shop detail page."""
@@ -243,16 +347,38 @@ def shop(
 
     try:
         scraper = ShopScraper()
-        detail = scraper.fetch(target)
+        detail = scraper.fetch(target, comment_limit=comment_limit)
     except Exception as e:
         console.print(f"[red]抓取商户失败：{e}[/red]")
         raise typer.Exit(1)
 
-    deal_lines = [
+    detail_lines = [
         f"- {deal.title} | {deal.price or '-'} / {deal.value or '-'} | {deal.discount or '-'}"
         for deal in detail.deals[:8]
     ]
-    content = "\n".join(deal_lines)
+    if detail.recommended_dishes:
+        detail_lines.append("")
+        detail_lines.append("推荐菜:")
+        for dish in detail.recommended_dishes[:8]:
+            detail_lines.append(
+                f"- {dish.name} | 推荐 {dish.recommend_count or 0}"
+            )
+
+    if detail.comments:
+        detail_lines.append("")
+        detail_lines.append(f"首屏评论({len(detail.comments)}/{detail.comment_count or len(detail.comments)}):")
+        for comment in detail.comments:
+            snippet = comment.content[:80] + ("..." if len(comment.content) > 80 else "")
+            meta = " / ".join(
+                x for x in [comment.publish_time, comment.rating_text, comment.price_text] if x
+            )
+            if meta:
+                detail_lines.append(f"- {comment.author_name} | {meta}")
+                detail_lines.append(f"  {snippet}")
+            else:
+                detail_lines.append(f"- {comment.author_name}: {snippet}")
+
+    content = "\n".join(detail_lines)
 
     display_detail(
         meta={
@@ -265,11 +391,14 @@ def shop(
             "地址": detail.address,
             "电话": ", ".join(detail.phone_numbers) if detail.phone_numbers else None,
             "坐标": f"{detail.lat}, {detail.lng}" if detail.lat and detail.lng else None,
+            "评价数": detail.comment_count,
+            "推荐菜": len(detail.recommended_dishes),
+            "首屏评论": len(detail.comments),
             "缓存接口数": len(detail.cache_keys),
         },
         content=content,
         title="商户详情",
-        content_title="团购/套餐",
+        content_title="套餐 / 推荐菜 / 首屏评论",
     )
 
     path = _save_payload(detail, f"shop_{detail.shop_uuid}.json", output)

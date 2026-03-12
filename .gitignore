@@ -61,6 +61,16 @@ logs/
 *.tmp
 *.temp
 .cache/
+tmp/
+
+# Node.js
+node_modules/
+
+# Environment
+.env
+
+# Output data
+outputs/
 
 # Claude Code local config
 .claude/

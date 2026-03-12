@@ -10,12 +10,13 @@ from playwright.sync_api import Response, sync_playwright
 from ....core.browser import get_state_path, STEALTH_SCRIPT
 from ..config import (
     SOURCE_NAME,
-    BASE_URL,
     COMMENT_API_PATH,
     COMMENT_REPLY_API_PATH,
     Timeouts,
 )
+from ..captcha_detect import handle_captcha
 from ..models import DouyinComment, DouyinFetchResponse, DouyinReply, DouyinUser
+from ..utils import normalize_video_target
 
 # JS to scroll the comment panel (tries class-name heuristics, then falls back to window scroll)
 _SCROLL_JS = """
@@ -62,18 +63,6 @@ class CommentScrapingError(Exception):
 
 class LoginRequiredError(CommentScrapingError):
     pass
-
-
-def _extract_aweme_id(url: str) -> Optional[str]:
-    """Extract video ID from a Douyin video URL."""
-    # Standard format: https://www.douyin.com/video/7613328220456226089
-    match = re.search(r"/video/(\d+)", url)
-    if match:
-        return match.group(1)
-    # Bare numeric ID
-    match = re.search(r"\b(\d{15,20})\b", url)
-    return match.group(1) if match else None
-
 
 def _parse_user(raw: dict) -> Optional[DouyinUser]:
     if not raw:
@@ -124,9 +113,9 @@ class CommentScraper:
         with_replies: bool = False,
         reply_limit: int = 3,
     ) -> DouyinFetchResponse:
-        aweme_id = _extract_aweme_id(url)
-        if not aweme_id:
-            raise CommentScrapingError(f"Cannot extract video ID from URL: {url}")
+        aweme_id, canonical_url = normalize_video_target(url)
+        if not aweme_id or not canonical_url:
+            raise CommentScrapingError(f"Cannot extract video ID from URL or ID: {url}")
 
         state_file = get_state_path(SOURCE_NAME)
         storage_state = str(state_file) if state_file.exists() else None
@@ -193,7 +182,7 @@ class CommentScraper:
             page.on("response", on_response)
 
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=Timeouts.NAVIGATION)
+                page.goto(canonical_url, wait_until="domcontentloaded", timeout=Timeouts.NAVIGATION)
             except Exception as exc:
                 context.close()
                 browser.close()
@@ -209,6 +198,9 @@ class CommentScraper:
 
             # Wait for initial batch of comments to load
             page.wait_for_timeout(Timeouts.COMMENT_LOAD)
+
+            # Check for CAPTCHA after initial load
+            handle_captcha(page, headless=self.headless)
 
             # Try to extract video metadata from page DOM
             try:
@@ -237,6 +229,8 @@ class CommentScraper:
                 except Exception:
                     pass
                 page.wait_for_timeout(Timeouts.SCROLL_WAIT)
+                # Check for CAPTCHA during scrolling
+                handle_captcha(page, headless=self.headless)
 
             # If with_replies: click all visible "expand replies" buttons
             if with_replies and comments:
@@ -259,7 +253,7 @@ class CommentScraper:
                     c.replies = reply_batches[c.cid][:reply_limit]
 
         return DouyinFetchResponse(
-            url=url,
+            url=canonical_url,
             aweme_id=aweme_id,
             desc=desc,
             author_name=author_name,

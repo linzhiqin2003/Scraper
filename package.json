@@ -1,0 +1,28 @@
+{
+  "name": "webscraper",
+  "version": "1.0.0",
+  "description": "统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书、抖音、Serper、Google CSE、携程、大众点评内容爬取，支持 CLI 和 MCP Server 两种使用方式。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/linzhiqin2003/Scraper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/linzhiqin2003/Scraper/issues"
+  },
+  "homepage": "https://github.com/linzhiqin2003/Scraper#readme",
+  "dependencies": {
+    "jsdom": "^28.1.0",
+    "xmlhttprequest-ssl": "^4.0.0"
+  }
+}

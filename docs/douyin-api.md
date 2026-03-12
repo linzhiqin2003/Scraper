@@ -287,9 +287,414 @@ GET https://www.douyin.com/aweme/v1/web/hot/search/list/
 
 ---
 
-## 三、用户相关接口
+## 三、用户主页接口
 
-### 3.1 用户社交计数 GET [重要度: ⭐⭐]
+> 以下接口通过访问用户主页 `https://www.douyin.com/user/MS4wLjABAAAAfMUnsFDYpGI8th4quOJUOaISOINPs9_aVhD69HriNKw?from_tab_name=main&vid=7613349187447440817` 实测抓包所得，抓包时间 2026-03-12。
+
+### 3.1 用户主页信息 GET [重要度: ⭐⭐⭐]
+
+```
+GET https://www.douyin.com/aweme/v1/web/user/profile/other/
+```
+
+**用途**: 获取任意用户的主页完整信息，包括昵称、粉丝数、关注数、作品数、简介、地区、认证状态等。无需登录即可访问公开用户的基础信息。
+
+**Query 参数（核心参数）**:
+
+| 参数 | 类型 | 必填 | 示例值 | 说明 |
+|------|------|------|--------|------|
+| `sec_user_id` | string | 是 | `MS4wLjABAAAAfMUnsFDYpGI8th4quOJUOaISOINPs9_aVhD69HriNKw` | 用户加密 UID，从用户主页 URL 路径中获取 |
+| `device_platform` | string | 是 | `webapp` | 固定值 |
+| `aid` | int | 是 | `6383` | 抖音 Web 端 AppID，固定值 |
+| `channel` | string | 是 | `channel_pc_web` | 固定值 |
+| `source` | string | 否 | `channel_pc_web` | 来源标识 |
+| `publish_video_strategy_type` | int | 否 | `2` | 发布视频策略类型 |
+| `pc_client_type` | int | 是 | `1` | PC 客户端类型 |
+| `update_version_code` | int | 是 | `170400` | 版本码 |
+| `webid` | string | 是 | `7604651149593806377` | Web 设备 ID，来自 `query/user` 接口 |
+| `verifyFp` / `fp` | string | 是 | `verify_mmfhp8mn_...` | 设备指纹，来自 Cookie `s_v_web_id` |
+| `a_bogus` | string | 是 | `Djs5DwW7m2Qj...` | 请求签名 |
+
+**响应关键字段（user 对象）**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `uid` | string | 用户数字 ID |
+| `sec_uid` | string | 用户加密 UID（与请求参数相同） |
+| `unique_id` | string | 用户自定义抖音号 |
+| `nickname` | string | 用户昵称 |
+| `signature` | string | 个人简介 |
+| `avatar_thumb` | object | 头像缩略图（100x100），含 `uri`、`url_list` |
+| `avatar_168x168` | object | 头像中图（168x168） |
+| `avatar_300x300` | object | 头像大图（300x300） |
+| `avatar_larger` | object | 头像原图（1080x1080） |
+| `aweme_count` | int | 视频作品数 |
+| `follower_count` | int | 粉丝数 |
+| `following_count` | int | 关注数 |
+| `total_favorited` | int | 作品总获赞数 |
+| `favoriting_count` | int | 用户点赞的视频数（私密，通常为 0） |
+| `gender` | int | 性别：1=男，2=女，0=未设置 |
+| `city` | string | 城市 |
+| `province` | string | 省份 |
+| `country` | string | 国家 |
+| `ip_location` | string | IP 归属地，如 `"IP属地：广东"` |
+| `school_name` | string | 学校名称 |
+| `verification_type` | int | 认证类型：0=无认证，1=个人认证，2=机构认证 |
+| `custom_verify` | string | 自定义认证说明文字 |
+| `enterprise_verify_reason` | string | 企业认证原因 |
+| `is_star` | bool | 是否星图达人 |
+| `commerce_user_level` | int | 商业用户等级 |
+| `live_status` | int | 直播状态：0=未直播，1=直播中 |
+| `room_id` | string/int | 直播间 ID（直播中时有效） |
+| `follow_status` | int | 当前登录用户对目标用户的关注状态：0=未关注，1=已关注，2=互相关注 |
+| `secret` | int | 账号私密状态：0=公开，1=私密 |
+| `dongtai_count` | int | 动态数量 |
+| `mix_count` | int | 合集数量 |
+| `cover_url` | array | 主页背景图列表 |
+| `share_info.share_url` | string | 用户主页分享链接 |
+| `profile_tab_info` | object | 主页标签页配置（作品/喜欢/合集等） |
+| `tab_settings` | object | 各 Tab 显示配置 |
+| `with_commerce_entry` | bool | 是否有商业合作入口 |
+| `with_fusion_shop_entry` | bool | 是否有橱窗/小店入口 |
+| `show_favorite_list` | bool | 是否公开喜欢列表 |
+| `commerce_info` | object | 商业信息（MCN、商品橱窗等） |
+
+**响应示例（精简）**:
+
+```json
+{
+  "status_code": 0,
+  "user": {
+    "uid": "211569837352999",
+    "sec_uid": "MS4wLjABAAAAfMUnsFDYpGI8th4quOJUOaISOINPs9_aVhD69HriNKw",
+    "unique_id": "49707497676",
+    "nickname": "Caro赖赖_",
+    "signature": "欢迎大家给我私信投稿！！\n深圳招募男演员，有意者➕ zlx92118karroy\n小宝贝：@赖赖不懒 摩羯♑INFJ\n📭商务合作：fqsw0011（备注品牌）",
+    "gender": 2,
+    "city": "深圳",
+    "province": "广东",
+    "country": "中国",
+    "ip_location": "IP属地：广东",
+    "aweme_count": 188,
+    "follower_count": 4890172,
+    "following_count": 389,
+    "total_favorited": 197674842,
+    "favoriting_count": 0,
+    "live_status": 0,
+    "follow_status": 1,
+    "verification_type": 0,
+    "is_star": false,
+    "commerce_user_level": 0,
+    "avatar_thumb": {
+      "uri": "aweme-avatar/tos-cn-avt-0015_724f3de16cc56209cc7e61b2955d6673",
+      "url_list": ["https://p3-pc.douyinpic.com/aweme/100x100/aweme-avatar/..."]
+    },
+    "cover_url": [{"uri": "...", "url_list": ["https://..."]}],
+    "share_info": {
+      "share_url": "https://www.iesdouyin.com/share/user/211569837352999?..."
+    }
+  },
+  "extra": {"logid": "20260312042726E36E8DF94DE416A8607B", "now": 1773260846000}
+}
+```
+
+---
+
+### 3.2 用户发布视频列表 GET [重要度: ⭐⭐⭐]
+
+```
+GET https://www.douyin.com/aweme/v1/web/aweme/post/
+```
+
+**用途**: 获取用户发布的视频列表，支持游标分页，每次返回 18 条。
+
+**Query 参数（核心参数）**:
+
+| 参数 | 类型 | 必填 | 示例值 | 说明 |
+|------|------|------|--------|------|
+| `sec_user_id` | string | 是 | `MS4wLjABAAAAfMUnsFDYpGI8th4quOJUOaISOINPs9_aVhD69HriNKw` | 用户加密 UID |
+| `max_cursor` | int | 是 | `0` | 分页游标，首次为 0，后续使用响应的 `max_cursor` |
+| `count` | int | 是 | `18` | 每页数量，固定 18 |
+| `from_user_page` | int | 是 | `1` | 固定为 1，标识来自用户主页 |
+| `locate_item_id` | string | 否 | `7613349187447440817` | 定位到指定视频（URL 中的 `vid` 参数），首次请求可传入 |
+| `locate_query` | bool | 否 | `false` | 是否为定位查询 |
+| `need_time_list` | int | 否 | `1` | 是否返回时间列表 |
+| `whale_cut_token` | string | 否 | `` | 热门视频置顶 token，首次为空 |
+| `cut_version` | int | 否 | `1` | 固定为 1 |
+| `show_live_replay_strategy` | int | 否 | `1` | 直播回放展示策略 |
+| `device_platform` | string | 是 | `webapp` | 固定值 |
+| `aid` | int | 是 | `6383` | 固定值 |
+| `channel` | string | 是 | `channel_pc_web` | 固定值 |
+| `publish_video_strategy_type` | int | 否 | `2` | 发布策略类型 |
+| `webid` | string | 是 | `7604651149593806377` | Web 设备 ID |
+| `verifyFp` / `fp` | string | 是 | `verify_mmfhp8mn_...` | 设备指纹 |
+| `a_bogus` | string | 是 | `mjsfDw7y...` | 请求签名 |
+
+**响应关键字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status_code` | int | 0=成功 |
+| `aweme_list` | array | 视频列表 |
+| `max_cursor` | int | 下一页游标（时间戳毫秒），传入下次请求的 `max_cursor` |
+| `min_cursor` | int | 最小游标 |
+| `has_more` | int | 1=有更多，0=已全部 |
+| `has_locate_item` | bool | 是否命中定位的视频 |
+| `time_list` | array | 视频按月份的时间分组列表 |
+| `post_serial` | int | 帖子序号 |
+
+**aweme_list 单条视频字段（核心）**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `aweme_id` | string | 视频唯一 ID，用于拼接详情页 URL `/video/{aweme_id}` |
+| `desc` | string | 视频描述/标题（含话题标签） |
+| `create_time` | int | 发布时间（Unix 时间戳，秒） |
+| `duration` | int | 视频时长（毫秒） |
+| `author.uid` | string | 作者数字 UID |
+| `author.sec_uid` | string | 作者加密 UID |
+| `author.nickname` | string | 作者昵称 |
+| `statistics.digg_count` | int | 点赞数 |
+| `statistics.comment_count` | int | 评论数 |
+| `statistics.share_count` | int | 分享数 |
+| `statistics.collect_count` | int | 收藏数 |
+| `statistics.recommend_count` | int | 推荐数（内部指标） |
+| `statistics.play_count` | int | 播放数（通常为 0，不对外展示） |
+| `video.play_addr` | object | 视频播放地址，含 `url_list`（支持 H.264/H.265） |
+| `video.play_addr_h264` | object | 强制 H.264 播放地址 |
+| `video.play_addr_265` | object | H.265 播放地址 |
+| `video.cover` | object | 视频封面 |
+| `video.dynamic_cover` | object | 动态封面（GIF） |
+| `video.height` | int | 视频高度（像素） |
+| `video.width` | int | 视频宽度（像素） |
+| `video.format` | string | 视频格式，如 `"mp4"` |
+| `video.bit_rate` | array | 多码率列表 |
+| `video.duration` | int | 视频时长（毫秒，与 aweme 级别的 duration 相同） |
+| `music` | object | 背景音乐信息（id、title、author、play_url） |
+| `text_extra` | array | 视频文字中的话题、@用户 等富文本 |
+| `aweme_type` | int | 视频类型：0=普通视频，4=图文 |
+| `media_type` | int | 媒体类型：4=视频，2=图文 |
+| `is_top` | int | 是否置顶：1=置顶，0=否 |
+| `is_ads` | bool | 是否为广告 |
+| `share_url` | string | 视频分享链接 |
+| `mix_info` | object | 所属合集信息（mix_id、mix_name） |
+| `series_basic_info` | object | 所属系列信息 |
+| `images` | array/null | 图文类型的图片列表 |
+| `aweme_control.can_share` | bool | 是否允许分享 |
+| `aweme_control.can_comment` | bool | 是否允许评论 |
+| `video_control.allow_download` | bool | 是否允许下载（实际无此字段，用 `prevent_download` 判断） |
+| `prevent_download` | bool | 是否禁止下载 |
+
+**响应示例（精简）**:
+
+```json
+{
+  "status_code": 0,
+  "min_cursor": 0,
+  "max_cursor": 1761914369000,
+  "has_more": 1,
+  "aweme_list": [
+    {
+      "aweme_id": "7563642188388322596",
+      "desc": ""我也想让你和我一样痛苦" #赖言赖语 #拍出电影感 #粉丝投稿",
+      "create_time": 1761047685,
+      "duration": 371009,
+      "author": {
+        "uid": "211569837352999",
+        "sec_uid": "MS4wLjABAAAAfMUnsFDYpGI8th4quOJUOaISOINPs9_aVhD69HriNKw",
+        "nickname": "Caro赖赖_"
+      },
+      "statistics": {
+        "digg_count": 1541617,
+        "comment_count": 35138,
+        "share_count": 335614,
+        "collect_count": 118484,
+        "recommend_count": 126414,
+        "play_count": 0
+      },
+      "video": {
+        "height": 1920,
+        "width": 1080,
+        "format": "mp4",
+        "duration": 371009,
+        "play_addr": {"url_list": ["https://v26-web.douyinvod.com/..."]},
+        "cover": {"url_list": ["https://p3-pc-sign.douyinpic.com/..."]}
+      },
+      "music": {
+        "id": 7563642313482816307,
+        "title": "@Caro赖赖_创作的原声",
+        "author": "Caro赖赖_"
+      },
+      "is_top": 0,
+      "aweme_type": 0,
+      "media_type": 4,
+      "prevent_download": false
+    }
+  ],
+  "time_list": [{"year": 2025, "months": [{"month": 4, "count": 3}]}]
+}
+```
+
+---
+
+### 3.3 用户收藏视频列表 GET [重要度: ⭐⭐]
+
+```
+GET https://www.douyin.com/aweme/v1/web/aweme/favorite/
+```
+
+**用途**: 获取用户公开收藏的视频列表。如果目标用户的收藏列表设置为私密，则返回空列表。需要登录。
+
+**Query 参数（核心参数）**:
+
+| 参数 | 类型 | 必填 | 示例值 | 说明 |
+|------|------|------|--------|------|
+| `sec_user_id` | string | 是 | `MS4wLjABAAAARnauB_qtFjtYviNMLMYCCpe22oIyBXFhA95U_dHVatU` | 目标用户加密 UID |
+| `max_cursor` | int | 是 | `0` | 分页游标，首次为 0 |
+| `min_cursor` | int | 是 | `0` | 最小游标 |
+| `count` | int | 否 | `18` | 每页数量 |
+| `device_platform` | string | 是 | `webapp` | 固定值 |
+| `aid` | int | 是 | `6383` | 固定值 |
+
+**响应关键字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `sec_uid` | string | 目标用户 sec_uid（与请求参数一致） |
+| `uid` | string | 目标用户数字 UID |
+| `aweme_list` | array | 收藏视频列表（结构与发布视频列表相同） |
+| `has_more` | int | 1=有更多 |
+| `max_cursor` | int | 下一页游标（时间戳毫秒） |
+
+**响应示例（精简）**:
+
+```json
+{
+  "status_code": 0,
+  "sec_uid": "MS4wLjABAAAARnauB_qtFjtYviNMLMYCCpe22oIyBXFhA95U_dHVatU",
+  "uid": "xxx",
+  "has_more": 1,
+  "max_cursor": 1772735822000,
+  "aweme_list": [{"aweme_id": "7614218988142934777", ...}]
+}
+```
+
+---
+
+### 3.4 用户合集列表 GET [重要度: ⭐⭐]
+
+```
+GET https://www.douyin.com/aweme/v1/web/mix/listcollection/
+```
+
+**用途**: 获取用户创建的视频合集（系列）列表。
+
+**Query 参数**:
+
+| 参数 | 类型 | 示例值 | 说明 |
+|------|------|--------|------|
+| `cursor` | int | `0` | 分页游标，首次为 0 |
+| `count` | int | `20` | 每页数量 |
+| `device_platform` | string | `webapp` | 固定值 |
+| `aid` | int | `6383` | 固定值 |
+
+**响应示例**:
+
+```json
+{
+  "status_code": 0,
+  "has_more": 0,
+  "cursor": 0,
+  "mix_infos": [
+    {
+      "mix_id": "7xxx",
+      "mix_name": "合集名称",
+      "cover_url": {"url_list": ["https://..."]},
+      "aweme_count": 12
+    }
+  ]
+}
+```
+
+---
+
+### 3.5 用户主页访问记录上报 POST [重要度: ⭐]
+
+```
+POST https://www.douyin.com/aweme/v1/web/profile/record/
+```
+
+**用途**: 上报当前用户对目标用户主页的访问行为（用于足迹记录、推荐系统），无业务数据返回。
+
+**Request Body (application/x-www-form-urlencoded)**:
+
+```
+record_params={"client_params":{"land_to":1,"from_uid":70067744428,"to_uid":211569837352999,"is_self":false},"business_params":{"has_stress_tag":false,...}}
+```
+
+**响应示例**:
+
+```json
+{"status_code": 0}
+```
+
+---
+
+### 用户主页接口调用链路
+
+```
+访问用户主页 https://www.douyin.com/user/{sec_uid}
+│
+├─► [并行初始化]
+│   ├─ GET /aweme/v1/web/user/profile/other/?sec_user_id={sec_uid}
+│   │       └─ 返回用户基本信息（粉丝/关注/作品数、简介、认证等）
+│   │
+│   ├─ GET /aweme/v1/web/aweme/post/?sec_user_id={sec_uid}&max_cursor=0
+│   │       └─ 返回前 18 条视频，每个视频包含 aweme_id、统计数据、封面
+│   │       └─ max_cursor → 下一页游标（时间戳毫秒）
+│   │
+│   ├─ GET /aweme/v1/web/aweme/favorite/?sec_user_id={sec_uid}&max_cursor=0
+│   │       └─ 如果用户公开收藏列表，返回收藏视频
+│   │
+│   └─ GET /aweme/v1/web/mix/listcollection/?cursor=0
+│           └─ 返回用户创建的合集列表
+│
+├─► [用户访问上报]
+│   └─ POST /aweme/v1/web/profile/record/
+│           └─ 上报访问行为（异步，不影响页面渲染）
+│
+└─► [用户下滑加载更多视频]
+    └─ GET /aweme/v1/web/aweme/post/?sec_user_id={sec_uid}&max_cursor={上次返回的max_cursor}
+            └─ 继续获取下一批 18 条视频，直到 has_more=0
+```
+
+**关键 ID 关联**:
+- 用户主页 URL `sec_uid` → `profile/other` 接口 `sec_user_id` 参数
+- 视频列表返回 `aweme_id` → 视频详情页 URL `https://www.douyin.com/video/{aweme_id}`
+- 视频列表返回 `max_cursor` → 下一页请求的 `max_cursor` 参数
+- 用户主页 URL 中的 `vid` 参数（即 `locate_item_id`）→ `aweme/post` 接口的 `locate_item_id` 参数（定位到该视频在列表中的位置）
+
+---
+
+### 用户主页接口注意事项
+
+1. **`sec_uid` 来源**: 用户主页 URL 格式为 `https://www.douyin.com/user/{sec_uid}`，其中路径最后一段即为 `sec_uid`。也可从视频作者信息（`author.sec_uid`）中获取。
+
+2. **`a_bogus` 签名必须**: `aweme/post` 和 `user/profile/other` 接口均需要 `a_bogus` 签名，需要在浏览器环境中通过 JS 计算生成（参见关键发现第 1 条）。
+
+3. **发布视频列表分页**: 使用时间戳游标分页，`max_cursor` 初始为 0，后续传上一次响应的 `max_cursor` 值（Unix 时间戳毫秒）。游标值本质是视频发布时间，加载顺序为从新到旧。
+
+4. **收藏列表权限**: 用户可设置收藏列表为私密，此时即使已登录也返回空列表。`show_favorite_list` 字段（来自 `profile/other` 接口）标识是否公开。
+
+5. **API 域名**: 本次抓包中 `aweme/post` 和 `user/profile/other` 均走 `www.douyin.com` 主域，不需要 `bd-ticket-guard-*` 请求头（与评论接口走 `www-hj.douyin.com` 不同）。
+
+6. **locate_item_id**: 当从某个具体视频跳转到用户主页时，URL 携带 `vid` 参数，对应 `aweme/post` 接口的 `locate_item_id` 参数，服务端会将该视频定位在列表中并在响应中标记 `has_locate_item=true`。
+
+---
+
+## 四、其他登录用户相关接口
+
+### 4.1 用户社交计数 GET [重要度: ⭐⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/social/count
@@ -331,7 +736,7 @@ GET https://www.douyin.com/aweme/v1/web/social/count
 
 ---
 
-### 3.2 消息通知计数 GET [重要度: ⭐⭐]
+### 4.2 消息通知计数 GET [重要度: ⭐⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/notice/count/
@@ -357,7 +762,7 @@ GET https://www.douyin.com/aweme/v1/web/notice/count/
 
 ---
 
-### 3.3 用户设置获取 GET [重要度: ⭐]
+### 4.3 用户设置获取 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/get/user/settings
@@ -380,13 +785,13 @@ GET https://www.douyin.com/aweme/v1/web/get/user/settings
 
 ---
 
-### 3.4 用户收藏视频列表 GET [重要度: ⭐⭐]
+### 4.4 用户收藏视频列表 (旧节点) GET [重要度: ⭐]
 
 ```
 GET https://www-hj.douyin.com/aweme/v1/web/aweme/favorite/
 ```
 
-**用途**: 获取用户收藏的视频列表（需登录，使用香港节点）。
+**用途**: 旧接口，使用香港节点。获取用户收藏的视频列表，需要携带 `bd-ticket-guard-*` 请求头。新版本已切换到 `www.douyin.com` 主域（见 3.3 节）。
 
 **Query 参数**:
 
@@ -402,7 +807,7 @@ GET https://www-hj.douyin.com/aweme/v1/web/aweme/favorite/
 
 ---
 
-### 3.5 个人主页 Web 设备注册 GET [重要度: ⭐]
+### 4.5 个人主页 Web 设备注册 GET [重要度: ⭐]
 
 ```
 GET https://www-hj.douyin.com/aweme/v1/web/query/user/
@@ -426,7 +831,7 @@ GET https://www-hj.douyin.com/aweme/v1/web/query/user/
 
 ---
 
-### 3.6 收藏合集列表 GET [重要度: ⭐]
+### 4.6 收藏合集列表 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/mix/listcollection/
@@ -454,9 +859,9 @@ GET https://www.douyin.com/aweme/v1/web/mix/listcollection/
 
 ---
 
-## 四、广播/多播查询接口
+## 五、广播/多播查询接口
 
-### 4.1 多播查询 GET [重要度: ⭐]
+### 5.1 多播查询 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/multicast/query/
@@ -475,9 +880,9 @@ GET https://www.douyin.com/aweme/v1/web/multicast/query/
 
 ---
 
-## 五、页面状态接口
+## 六、页面状态接口
 
-### 5.1 页面离线切换上报 POST [重要度: ⭐]
+### 6.1 页面离线切换上报 POST [重要度: ⭐]
 
 ```
 POST https://www.douyin.com/aweme/v1/web/page/turn/offline
@@ -498,9 +903,9 @@ POST https://www.douyin.com/aweme/v1/web/page/turn/offline
 
 ---
 
-## 六、运营位/资源接口
+## 七、运营位/资源接口
 
-### 6.1 解决方案资源列表 GET [重要度: ⭐]
+### 7.1 解决方案资源列表 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/solution/resource/list/
@@ -522,7 +927,7 @@ GET https://www.douyin.com/aweme/v1/web/solution/resource/list/
 
 ---
 
-### 6.2 站外通知 GET [重要度: ⭐]
+### 7.2 站外通知 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/external/notification/
@@ -541,9 +946,9 @@ GET https://www.douyin.com/aweme/v1/web/external/notification/
 
 ---
 
-## 七、安全/Token 接口
+## 八、安全/Token 接口
 
-### 7.1 msToken 刷新 POST [重要度: ⭐⭐⭐]
+### 8.1 msToken 刷新 POST [重要度: ⭐⭐⭐]
 
 ```
 POST https://mssdk.bytedance.com/web/r/token
@@ -562,7 +967,7 @@ POST https://mssdk.bytedance.com/web/r/token
 
 ---
 
-### 7.2 Token 心跳 GET [重要度: ⭐]
+### 8.2 Token 心跳 GET [重要度: ⭐]
 
 ```
 GET https://www.douyin.com/passport/token/beat/web/
@@ -572,7 +977,7 @@ GET https://www.douyin.com/passport/token/beat/web/
 
 ---
 
-## 八、认证接口
+## 九、认证接口
 
 **登录方式**: 导入 Cookies 文件（Netscape 格式）
 
@@ -605,7 +1010,7 @@ document.cookie = "s_v_web_id=verify_mmfhp8mn_...; domain=www.douyin.com; path=/
 
 ---
 
-## 九、接口调用链路
+## 十、接口调用链路（精选页）
 
 ```
 页面加载 (https://www.douyin.com/jingxuan)
@@ -639,7 +1044,7 @@ document.cookie = "s_v_web_id=verify_mmfhp8mn_...; domain=www.douyin.com; path=/
 
 ---
 
-## 十、关键发现
+## 十一、关键发现
 
 1. **签名机制 (`a_bogus`)**: 每个请求都包含 `a_bogus` 参数，由前端 JS 对完整请求 URL（含所有 Query 参数）进行哈希签名生成，不同请求的 `a_bogus` 均不同。无法直接构造，需要在浏览器环境中执行签名 JS，或使用 CDP 注入页面计算。
 
@@ -667,11 +1072,11 @@ document.cookie = "s_v_web_id=verify_mmfhp8mn_...; domain=www.douyin.com; path=/
 
 ---
 
-## 十一、评论接口
+## 十二、评论接口
 
 > 以下接口均通过对视频 `7613328220456226089` 实测抓包所得，抓包时间 2026-03-07。
 
-### 11.1 评论列表 GET [重要度: ⭐⭐⭐]
+### 12.1 评论列表 GET [重要度: ⭐⭐⭐]
 
 ```
 GET https://www-hj.douyin.com/aweme/v1/web/comment/list/
@@ -822,7 +1227,7 @@ GET https://www-hj.douyin.com/aweme/v1/web/comment/list/
 
 ---
 
-### 11.2 评论回复列表（二级评论）GET [重要度: ⭐⭐⭐]
+### 12.2 评论回复列表（二级评论）GET [重要度: ⭐⭐⭐]
 
 ```
 GET https://www-hj.douyin.com/aweme/v1/web/comment/list/reply/
@@ -913,7 +1318,7 @@ GET https://www-hj.douyin.com/aweme/v1/web/comment/list/reply/
 
 ---
 
-### 11.3 视频详情（含评论数）GET [重要度: ⭐⭐⭐]
+### 12.3 视频详情（含评论数）GET [重要度: ⭐⭐⭐]
 
 ```
 GET https://www.douyin.com/aweme/v1/web/aweme/detail/

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
 
 from ...core.browser import get_state_path
@@ -17,9 +18,18 @@ from ...core.display import (
     display_saved,
 )
 from ...core.storage import JSONStorage
+from ...core.exceptions import CaptchaError
 from .auth import AuthStatus, LoginStatus, check_saved_session, clear_session, interactive_login
 from .config import SOURCE_NAME
-from .scrapers import CommentScraper, CommentScrapingError, LoginRequiredError
+from .scrapers import (
+    CommentScraper,
+    CommentScrapingError,
+    LoginRequiredError,
+    UserProfileError,
+    UserProfileScraper,
+    VideoDownloadError,
+    VideoDownloader,
+)
 
 app = typer.Typer(
     name=SOURCE_NAME,
@@ -63,6 +73,17 @@ def _normalize_same_site(value: object) -> str:
     if text == "none":
         return "None"
     return "Lax"
+
+
+def _load_urls_from_file(path: Path) -> list[str]:
+    """Load newline-delimited URLs from text file."""
+    urls: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        urls.append(line)
+    return urls
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +221,7 @@ def logout() -> None:
 
 @app.command()
 def fetch(
-    url: str = typer.Argument(..., help="Douyin video URL (e.g. https://www.douyin.com/video/XXXXXX)"),
+    url: str = typer.Argument(..., help="Douyin video URL or video ID"),
     limit: int = typer.Option(20, "--limit", "-n", min=1, help="Maximum number of comments to fetch"),
     with_replies: bool = typer.Option(False, "--with-replies", help="Also fetch replies for each comment"),
     reply_limit: int = typer.Option(3, "--reply-limit", min=1, help="Max replies per comment"),
@@ -208,11 +229,13 @@ def fetch(
     save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
-    """Fetch comments from a Douyin video by URL.
+    """Fetch comments from a Douyin video by URL or video ID.
 
     Examples:
 
       scraper douyin fetch https://www.douyin.com/video/7613328220456226089
+
+      scraper douyin fetch 7613328220456226089
 
       scraper douyin fetch https://www.douyin.com/video/7613328220456226089 -n 100
 
@@ -233,6 +256,9 @@ def fetch(
             )
     except LoginRequiredError as exc:
         console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
+    except CaptchaError as exc:
+        console.print(f"[yellow]{exc}[/]")
         raise typer.Exit(1)
     except CommentScrapingError as exc:
         console.print(f"[red]Fetch failed:[/red] {exc}")
@@ -298,6 +324,326 @@ def fetch(
         storage = JSONStorage(source=SOURCE_NAME)
         filename = storage.generate_filename("comments", suffix=result.aweme_id)
         output_path = storage.save(result, filename, description="comments", silent=True)
+
+    if output_path:
+        display_saved(output_path)
+
+
+@app.command()
+def download(
+    urls: Optional[list[str]] = typer.Argument(None, help="One or more Douyin video URLs, jingxuan URLs, or video IDs"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output MP4 file path"),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Output directory for batch downloads"),
+    input_file: Optional[Path] = typer.Option(None, "--input-file", help="Text file with one Douyin URL or video ID per line"),
+    retries: int = typer.Option(3, "--retries", min=1, help="Retry attempts per URL"),
+) -> None:
+    """Download one or more Douyin videos to local disk."""
+    _require_login()
+    all_urls = list(urls or [])
+    if input_file is not None:
+        path = input_file.expanduser()
+        if not path.exists():
+            console.print(f"[red]Input file not found:[/red] {path}")
+            raise typer.Exit(1)
+        all_urls.extend(_load_urls_from_file(path))
+    if not all_urls:
+        console.print("[red]Provide at least one URL or use --input-file.[/]")
+        raise typer.Exit(1)
+    deduped_urls = list(dict.fromkeys(all_urls))
+
+    downloader = VideoDownloader(headless=headless, max_retries=retries)
+    if len(deduped_urls) > 1 and output is not None:
+        console.print("[red]--output only supports a single URL. Use --output-dir for batch downloads.[/]")
+        raise typer.Exit(1)
+
+    results = []
+    failures: list[tuple[str, str]] = []
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Downloading Douyin videos...", total=len(deduped_urls))
+        for index, url in enumerate(deduped_urls):
+            target_output = output if index == 0 else None
+            try:
+                progress.update(task, description=f"Processing {index + 1}/{len(deduped_urls)}")
+                result = downloader.download(url=url, output=target_output, output_dir=output_dir)
+                results.append(result)
+            except VideoDownloadError as exc:
+                failures.append((url, str(exc)))
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Download cancelled.[/]")
+                raise typer.Exit(130)
+            finally:
+                progress.advance(task)
+
+    if len(results) == 1 and not failures:
+        result = results[0]
+        meta = {
+            "Video ID": result.aweme_id,
+            "Description": (result.desc or "-")[:100],
+            "Author": result.author_name or "-",
+            "Method": result.method,
+            "Duration (ms)": result.duration_ms or "-",
+            "File size": result.file_size,
+            "Video URL": result.video_url,
+            "Saved to": result.output_path,
+            "Metadata": result.metadata_path,
+            "Status": "skipped" if result.skipped else "downloaded",
+            "Attempts": result.attempts,
+            "Downloaded at": result.downloaded_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        display_detail(meta=meta, content="", title="Douyin Video")
+        display_saved(result.output_path, description="Video")
+        display_saved(result.metadata_path, description="Metadata")
+        return
+
+    if results:
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Video ID", style="cyan", width=20)
+        table.add_column("Author", style="cyan", max_width=16)
+        table.add_column("Status", style="green", width=10)
+        table.add_column("Size", style="yellow", width=10)
+        table.add_column("MP4", max_width=42)
+        table.add_column("JSON", max_width=42)
+        for idx, result in enumerate(results, 1):
+            table.add_row(
+                str(idx),
+                result.aweme_id,
+                result.author_name or "-",
+                "skipped" if result.skipped else "downloaded",
+                str(result.file_size),
+                result.output_path,
+                result.metadata_path,
+            )
+        console.print(table)
+
+    if failures:
+        table = Table(show_header=True, header_style="bold red")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("URL", max_width=48)
+        table.add_column("Error", max_width=80)
+        for idx, (url, error) in enumerate(failures, 1):
+            table.add_row(str(idx), url, error)
+        console.print(table)
+        raise typer.Exit(1)
+
+
+def _format_count(n: Optional[int]) -> str:
+    """Format large numbers with wan (万) suffix."""
+    if n is None:
+        return "-"
+    if n >= 100_000_000:
+        return f"{n / 100_000_000:.1f}亿"
+    if n >= 10_000:
+        return f"{n / 10_000:.1f}万"
+    return str(n)
+
+
+def _format_gender(g: Optional[int]) -> str:
+    if g == 1:
+        return "男"
+    if g == 2:
+        return "女"
+    return "-"
+
+
+def _format_timestamp(ts: Optional[int]) -> str:
+    if ts is None:
+        return "-"
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def _format_duration(ms: Optional[int]) -> str:
+    if ms is None:
+        return "-"
+    secs = ms // 1000
+    mins, secs = divmod(secs, 60)
+    return f"{mins}:{secs:02d}"
+
+
+@app.command()
+def profile(
+    url: str = typer.Argument(..., help="Douyin user profile URL"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
+) -> None:
+    """Fetch a Douyin user's profile information.
+
+    Examples:
+
+      scraper douyin profile https://www.douyin.com/user/MS4wLjABAAAAxxx
+
+      scraper douyin profile <url> --no-save
+    """
+    _require_login()
+    scraper = UserProfileScraper(headless=headless)
+
+    try:
+        with console.status("[cyan]Fetching user profile...[/]"):
+            result = scraper.scrape_profile(url=url)
+    except LoginRequiredError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
+    except CaptchaError as exc:
+        console.print(f"[yellow]{exc}[/]")
+        raise typer.Exit(1)
+    except UserProfileError as exc:
+        console.print(f"[red]Profile fetch failed:[/red] {exc}")
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Fetch cancelled.[/]")
+        raise typer.Exit(130)
+
+    p = result.profile
+    meta = {
+        "UID": p.uid or "-",
+        "Sec UID": p.sec_uid or "-",
+        "Douyin ID": p.unique_id or "-",
+        "Nickname": p.nickname or "-",
+        "Gender": _format_gender(p.gender),
+        "Location": ", ".join(filter(None, [p.city, p.province, p.country])) or "-",
+        "IP Location": p.ip_location or "-",
+        "School": p.school_name or "-",
+        "Followers": _format_count(p.follower_count),
+        "Following": _format_count(p.following_count),
+        "Videos": _format_count(p.aweme_count),
+        "Total Likes": _format_count(p.total_favorited),
+        "Collections": str(p.mix_count) if p.mix_count is not None else "-",
+        "Verification": p.custom_verify or (
+            {0: "None", 1: "Personal", 2: "Enterprise"}.get(p.verification_type or 0, "-")
+        ),
+        "Live Status": "Live" if p.live_status == 1 else "Offline",
+        "Account": "Private" if p.secret == 1 else "Public",
+        "Scraped at": result.scraped_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    display_detail(
+        meta=meta,
+        content=p.signature or "",
+        title="Douyin User Profile",
+        content_title="Bio",
+    )
+
+    output_path: Optional[Path] = None
+    if output:
+        output_path = output.expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    elif save:
+        storage = JSONStorage(source=SOURCE_NAME)
+        filename = storage.generate_filename("profile", suffix=p.uid or result.sec_uid)
+        output_path = storage.save(result, filename, description="profile", silent=True)
+
+    if output_path:
+        display_saved(output_path)
+
+
+@app.command()
+def videos(
+    url: str = typer.Argument(..., help="Douyin user profile URL"),
+    limit: int = typer.Option(18, "--limit", "-n", min=1, help="Maximum number of videos to fetch"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
+) -> None:
+    """Fetch a Douyin user's posted video list.
+
+    Examples:
+
+      scraper douyin videos https://www.douyin.com/user/MS4wLjABAAAAxxx
+
+      scraper douyin videos <url> -n 50
+
+      scraper douyin videos <url> -n 100 --no-save
+    """
+    _require_login()
+    scraper = UserProfileScraper(headless=headless)
+
+    try:
+        with console.status(f"[cyan]Fetching videos (limit={limit})...[/]"):
+            result = scraper.scrape_videos(url=url, limit=limit)
+    except LoginRequiredError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1)
+    except CaptchaError as exc:
+        console.print(f"[yellow]{exc}[/]")
+        raise typer.Exit(1)
+    except UserProfileError as exc:
+        console.print(f"[red]Videos fetch failed:[/red] {exc}")
+        raise typer.Exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Fetch cancelled.[/]")
+        raise typer.Exit(130)
+
+    meta = {
+        "Author": result.author_name or "-",
+        "Sec UID": result.sec_uid,
+        "Total Videos": str(result.total_videos) if result.total_videos is not None else "-",
+        "Fetched": str(result.fetched_count),
+        "Pages": str(result.pages_fetched),
+        "Has More": "Yes" if result.has_more else "No",
+        "Method": result.method,
+        "Scraped at": result.scraped_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    video_table = None
+    if result.videos:
+        video_table = Table(show_header=True, header_style="bold magenta")
+        video_table.add_column("#", style="dim", width=4)
+        video_table.add_column("Video ID", style="cyan", width=20)
+        video_table.add_column("Published", style="dim", width=16)
+        video_table.add_column("Duration", style="dim", width=8)
+        video_table.add_column("Likes", style="yellow", width=10)
+        video_table.add_column("Comments", style="blue", width=10)
+        video_table.add_column("Shares", style="green", width=10)
+        video_table.add_column("Collects", style="magenta", width=10)
+        video_table.add_column("Description", max_width=50)
+
+        for idx, v in enumerate(result.videos, 1):
+            stats = v.statistics
+            top_mark = " [red]TOP[/red]" if v.is_top else ""
+            video_table.add_row(
+                str(idx),
+                v.aweme_id,
+                _format_timestamp(v.create_time),
+                _format_duration(v.duration),
+                _format_count(stats.digg_count if stats else None),
+                _format_count(stats.comment_count if stats else None),
+                _format_count(stats.share_count if stats else None),
+                _format_count(stats.collect_count if stats else None),
+                ((v.desc or "")[:100] + top_mark),
+            )
+
+    display_detail(
+        meta=meta,
+        content="",
+        title="Douyin User Videos",
+        content_title=None,
+        sub_tables=[("Videos", video_table)] if video_table else None,
+    )
+
+    output_path: Optional[Path] = None
+    if output:
+        output_path = output.expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    elif save:
+        storage = JSONStorage(source=SOURCE_NAME)
+        filename = storage.generate_filename("videos", suffix=result.sec_uid[:16])
+        output_path = storage.save(result, filename, description="videos", silent=True)
 
     if output_path:
         display_saved(output_path)

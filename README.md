@@ -1,15 +1,15 @@
 # Web Scraper
 
-统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书、抖音、Serper、Google CSE、携程、大众点评内容爬取，支持 CLI 和 MCP Server 两种使用方式。
+统一爬虫框架，整合 Reuters、WSJ、Google Scholar、Weibo、知乎、小红书、抖音、京东、新浪新闻、爱给网、Serper、Google CSE、携程、大众点评内容爬取，支持 CLI 和 MCP Server 两种使用方式。
 
 ## Features
 
-- **11 源支持**: Reuters、WSJ、Scholar、Weibo、Zhihu、XHS、Douyin、Serper、Google CSE、Ctrip、Dianping
+- **14 源支持**: Reuters、WSJ、Scholar、Weibo、Zhihu、XHS、Douyin、JD、Sina、Aigei、Serper、Google CSE、Ctrip、Dianping
 - **统一 CLI**: `scraper <source> <command>` 子命令模式，所有源命令标准化
 - **MCP Server**: 可作为 LLM Agent 工具使用（`scraper-mcp`）
 - **反检测**: Playwright + 真实 Chrome + Stealth 脚本 + UA 池 + 代理池
 - **会话持久化**: Cookie 自动保存，支持断点续爬
-- **API 优先**: Reuters 使用 Arc API，Zhihu 使用纯 Python 签名绕过
+- **API 优先**: Reuters 使用 Arc API，Zhihu 使用纯 Python 签名绕过，JD 使用 h5st 签名
 - **统一输出**: Rich 表格渲染，统一色彩规范
 
 ## Installation
@@ -184,11 +184,32 @@ scraper douyin login
 # Fetch comments from a video URL
 scraper douyin fetch https://www.douyin.com/video/7613328220456226089
 
+# Fetch comments directly from a video ID
+scraper douyin fetch 7613328220456226089
+
 # Fetch 100 comments
 scraper douyin fetch <url> -n 100
 
 # Fetch comments with replies
 scraper douyin fetch <url> -n 50 --with-replies
+
+# Download video to local MP4
+scraper douyin download https://www.douyin.com/jingxuan?modal_id=7613349187447440817
+
+# Download video to a specific file
+scraper douyin download <url> -o /tmp/douyin_video.mp4
+
+# Batch download multiple videos to one directory
+scraper douyin download <url1> <url2> --output-dir /tmp/douyin_batch
+
+# Batch download from a text file (one URL or video ID per line)
+scraper douyin download --input-file urls.txt --output-dir /tmp/douyin_batch
+
+# Fetch user profile
+scraper douyin profile https://www.douyin.com/user/MS4wLjAB...
+
+# Fetch user's video list
+scraper douyin videos https://www.douyin.com/user/MS4wLjAB... --limit 50
 
 # Save to specific file
 scraper douyin fetch <url> -n 50 -o comments.json
@@ -200,6 +221,162 @@ scraper douyin logout
 > **Note**: Douyin uses `a_bogus` request signing that can only be computed inside a real browser.
 > The scraper uses Playwright response interception — the browser navigates to the video page and
 > the comment API responses are captured automatically, requiring no manual signature computation.
+
+### JD (京东)
+
+```bash
+# Import cookies from browser
+scraper jd import-cookies ~/Downloads/jd_cookies.txt
+
+# Check login & cookie validity
+scraper jd status
+
+# Search products
+scraper jd search "机械键盘" -n 20
+
+# Search with filters (sort, price, delivery)
+scraper jd search "显卡" --sort price_asc --min-price 2000 --max-price 5000
+
+# Fetch product detail (SKU variants, promotions, comments)
+scraper jd fetch <sku_id>
+
+# Fetch product comments
+scraper jd comments <sku_id> -n 50
+
+# Fetch comments with filters (score, pictures, sorting)
+scraper jd comments <sku_id> --score good --has-pic --sort newest
+
+# Batch scrape comments from search results
+scraper jd batch-comments <search_result.json>
+
+# Show sort modes and options
+scraper jd options
+```
+
+> **Note**: JD 使用 h5st 签名机制绕过反爬，支持 API 模式（httpx + h5st）和 Playwright 回退两种策略。
+
+### Sina News (新浪新闻)
+
+```bash
+# Search news with time range
+scraper sina search "人工智能" --start-time "2025-01-01" --end-time "2025-12-31"
+
+# Adaptive time-window splitting for large queries
+scraper sina search "经济" --start-time "2020-01-01" --end-time "2025-12-31" --adaptive
+
+# Split by year to avoid rate limits
+scraper sina search "科技" --start-time "2020-01-01" --end-time "2025-12-31" --split-by-year
+
+# Filter by source and limit results
+scraper sina search "AI" --source 新浪科技 --limit 100
+
+# Export to CSV/JSON
+scraper sina search "keyword" -o results.csv
+```
+
+### Aigei (爱给网 GIF)
+
+```bash
+# Check website connectivity
+scraper aigei status
+
+# Search GIF resources
+scraper aigei search "猫咪" -n 20
+
+# Multi-keyword batch search
+scraper aigei search "猫咪" "狗狗" "兔子" --pages 3
+
+# Search and download free GIFs
+scraper aigei search "表情包" --download
+
+# Fetch all pages
+scraper aigei search "动画" --all
+
+# Show available options and resource types
+scraper aigei options
+```
+
+### Serper (Google Search API)
+
+```bash
+# Requires: SERPER_API_KEY env var (https://serper.dev)
+scraper serper status                                    # Check API key
+scraper serper search "Python asyncio" -n 10             # Web search
+scraper serper search "AI news" --type news --time week  # News search
+scraper serper search "query" --country cn --lang zh-cn  # Localized search
+scraper serper fetch <url>                               # Fetch URL content
+scraper serper options                                   # Show options
+```
+
+### Google Custom Search
+
+```bash
+# Requires: GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX env vars
+scraper google status                                    # Check API config
+scraper google search "machine learning" -n 5            # Web search
+scraper google search "query" --date-restrict week       # Date filter
+scraper google fetch <url>                               # Fetch URL content
+scraper google options                                   # Show options + setup guide
+```
+
+### Ctrip (携程)
+
+```bash
+# Import cookies from browser
+scraper ctrip import-cookies ~/Downloads/ctrip_cookies.txt
+
+# Check login status
+scraper ctrip status
+
+# Search hotels
+scraper ctrip search 上海 --checkin 2026-03-10 --checkout 2026-03-11 -n 10
+
+# Search flights
+scraper ctrip flight-search 上海 北京 --date 2026-03-10 -n 10
+
+# Search direct flights only
+scraper ctrip flight-search 上海 北京 --date 2026-03-10 --direct-only
+
+# Query low-price calendar
+scraper ctrip flight-calendar 上海 北京 --date 2026-03-10 --days 15
+
+# Show built-in flight city codes
+scraper ctrip flight-cities
+```
+
+### Dianping (大众点评)
+
+```bash
+# Login interactively (browser)
+scraper dianping login
+
+# Import cookies from browser
+scraper dianping import-cookies ~/Downloads/dianping_cookies.txt
+
+# Check login status
+scraper dianping status
+
+# Search shops (auto fallback to browser on verification)
+scraper dianping search "北京 烤鸭" -n 10
+
+# Force browser mode for search
+scraper dianping search "上海 咖啡" --browser
+
+# Browse home feed
+scraper dianping browse --limit 20
+
+# Fetch shop detail (deals, dishes, comments)
+scraper dianping shop <url_or_uuid>
+
+# Fetch note/article detail
+scraper dianping note <url_or_id>
+
+# Auto-detect and fetch (shop or note)
+scraper dianping fetch <url>
+
+# Clear session
+scraper dianping logout
+```
 
 ## CLI Reference
 
@@ -220,16 +397,33 @@ All sources follow a unified command convention:
 
 | Command | Function | Sources |
 |---------|----------|---------|
-| `login` | Interactive login | Reuters, XHS, Zhihu, Weibo, Douyin |
-| `status` | Check auth/cookie status | All 7 sources |
-| `logout` | Clear session | Reuters, XHS, Zhihu, Weibo, Douyin |
-| `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu, Douyin |
-| `search` | Search content | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS |
-| `fetch` | Fetch single item by URL/ID | All 7 sources |
-| `browse` | Browse/discover content | Reuters, XHS, WSJ, Weibo |
-| `options` | Show available filters/categories | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS |
+| `login` | Interactive login | Reuters, XHS, Zhihu, Weibo, Douyin, Dianping |
+| `status` | Check auth/cookie status | All 14 sources |
+| `logout` | Clear session | Reuters, XHS, Zhihu, Weibo, Douyin, Dianping |
+| `import-cookies` | Import browser cookies | Reuters, WSJ, Scholar, Zhihu, Douyin, JD, Ctrip, Dianping |
+| `search` | Search content | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS, JD, Sina, Aigei, Dianping |
+| `fetch` | Fetch single item by URL/ID | All 14 sources |
+| `browse` | Browse/discover content | Reuters, XHS, WSJ, Weibo, Dianping |
+| `options` | Show available filters/categories | Reuters, WSJ, Scholar, Zhihu, Weibo, XHS, JD, Aigei |
 
 Standard parameters: `-n/--limit`, `-o/--output`, `--no-save`, `--shallow/-s`
+
+### Source-specific Commands
+
+| Command | Source | Function |
+|---------|--------|----------|
+| `download` | Douyin | Download videos (single/batch) |
+| `profile` | Douyin | Fetch user profile |
+| `videos` | Douyin | Fetch user's video list |
+| `comments` | JD | Product comment scraping |
+| `batch-comments` | JD | Batch comment scraping |
+| `flight-search` | Ctrip | Search flights |
+| `flight-calendar` | Ctrip | Low-price flight calendar |
+| `flight-cities` | Ctrip | List flight city codes |
+| `shop` | Dianping | Shop detail page |
+| `note` | Dianping | Note/article detail |
+| `hot` | Weibo | Hot-search topics |
+| `proxy-status` | Zhihu | Proxy pool status |
 
 ## MCP Server
 
@@ -275,62 +469,7 @@ scraper-mcp
 - `xhs_fetch_note` - Fetch a specific note
 - `xhs_get_categories` - Get available categories
 
-### Serper (Google Search API)
-
-```bash
-# Requires: SERPER_API_KEY env var (https://serper.dev)
-scraper serper status                                    # Check API key
-scraper serper search "Python asyncio" -n 10             # Web search
-scraper serper search "AI news" --type news --time week  # News search
-scraper serper search "query" --country cn --lang zh-cn  # Localized search
-scraper serper fetch <url>                               # Fetch URL content
-scraper serper options                                   # Show options
-```
-
-### Google Custom Search
-
-```bash
-# Requires: GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX env vars
-scraper google status                                    # Check API config
-scraper google search "machine learning" -n 5            # Web search
-scraper google search "query" --date-restrict week       # Date filter
-scraper google fetch <url>                               # Fetch URL content
-scraper google options                                   # Show options + setup guide
-```
-
-### Ctrip (携程)
-
-```bash
-# Import cookies from browser
-scraper ctrip import-cookies ~/Downloads/ctrip_cookies.txt
-
-# Check login status
-scraper ctrip status
-
-# Search hotels
-scraper ctrip search "上海" --type hotel -n 10
-
-# Fetch hotel detail
-scraper ctrip fetch <url>
-```
-
-### Dianping (大众点评)
-
-```bash
-# Import cookies from browser
-scraper dianping import-cookies ~/Downloads/dianping_cookies.txt
-
-# Check login status
-scraper dianping status
-
-# Search shops
-scraper dianping search "北京 烤鸭" -n 10
-
-# Fetch shop detail
-scraper dianping fetch <url>
-```
-
-> Douyin comment fetching is CLI-only (not exposed as MCP tool).
+> Douyin, JD, Sina, Aigei 目前为 CLI-only（未暴露为 MCP 工具）。
 
 ### Claude Code Configuration
 
@@ -369,6 +508,13 @@ scraper dianping fetch <url>
 │   └── exports/
 ├── douyin/
 │   ├── browser_state.json    # Session (cookies from browser export)
+│   └── exports/
+├── jd/
+│   ├── cookies.txt           # Netscape format cookies
+│   └── exports/
+├── sina/
+│   └── exports/
+├── aigei/
 │   └── exports/
 ├── serper/
 │   └── exports/
@@ -410,6 +556,9 @@ WebScraper/
 │   │   ├── weibo/              # Weibo (httpx API + Playwright fallback)
 │   │   ├── xiaohongshu/        # Xiaohongshu (async, Playwright)
 │   │   ├── douyin/             # Douyin (sync, Playwright response interception)
+│   │   ├── jd/                 # JD 京东 (httpx + h5st signing + Playwright)
+│   │   ├── sina/               # Sina News 新浪新闻 (httpx)
+│   │   ├── aigei/              # Aigei 爱给网 GIF (httpx)
 │   │   ├── serper/             # Serper Google Search API
 │   │   ├── google/             # Google Custom Search API
 │   │   ├── ctrip/              # Ctrip 携程 (Playwright)
@@ -429,8 +578,8 @@ WebScraper/
 ## Requirements
 
 - Python 3.11+
-- Playwright (for Reuters, Xiaohongshu, Zhihu fallback, Weibo fallback)
-- httpx (for WSJ, Scholar, Zhihu, Weibo)
+- Playwright (for Reuters, Xiaohongshu, Zhihu fallback, Weibo fallback, Douyin, JD fallback, Ctrip, Dianping)
+- httpx (for WSJ, Scholar, Zhihu, Weibo, JD, Sina, Aigei)
 - Chrome browser (for best anti-detection)
 
 ## License

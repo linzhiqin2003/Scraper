@@ -40,6 +40,42 @@ def parse_netscape_cookies(cookies_file: Path) -> httpx.Cookies:
     return cookies
 
 
+def load_playwright_cookies(cookies_path: Path | None = None) -> list[dict]:
+    """Load Netscape cookies into Playwright cookie objects."""
+    cookies_file = cookies_path or get_cookies_path()
+    if not cookies_file.exists():
+        raise FileNotFoundError(f"Cookies 文件不存在: {cookies_file}")
+
+    cookies: list[dict] = []
+    with open(cookies_file, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            parts = line.split("\t")
+            if len(parts) < 7:
+                continue
+
+            domain, _, path, secure, expires, name, value = parts[:7]
+            cookie = {
+                "name": name,
+                "value": value,
+                "domain": domain,
+                "path": path or "/",
+                "secure": secure.upper() == "TRUE",
+            }
+            try:
+                expiry = int(expires)
+                if expiry > 0:
+                    cookie["expires"] = expiry
+            except Exception:
+                pass
+            cookies.append(cookie)
+
+    return cookies
+
+
 def load_cookies(cookies_path: Path | None = None) -> httpx.Cookies:
     """Load cookies, defaulting to ~/.web_scraper/dianping/cookies.txt."""
     return parse_netscape_cookies(cookies_path or get_cookies_path())

@@ -111,5 +111,20 @@ def _load_sources():
     except ImportError:
         pass
 
+    try:
+        from . import sina
+    except ImportError:
+        pass
+
+    try:
+        from . import aigei
+    except ImportError:
+        pass
+
+    try:
+        from . import jd
+    except ImportError:
+        pass
+
 
 _load_sources()

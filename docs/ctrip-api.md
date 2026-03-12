@@ -3,11 +3,15 @@
 ## 概述
 
 - **CLI Source**: `ctrip`
-- **当前实现**: 以用户中心 SOA2 接口为主，登录流程通过浏览器拿 cookie，业务请求通过 `httpx` 直连
+- **当前实现**:
+  - 用户中心：SOA2 + `httpx`
+  - 酒店：SOA2 API + Playwright XHR 拦截
+  - 机票：低价日历走 SOA2，航班列表走 Playwright 结果页 DOM 解析
 - **主域名**:
   - `www.ctrip.com`
   - `passport.ctrip.com`
   - `m.ctrip.com`
+  - `flights.ctrip.com`
 - **认证**:
   - 登录后导出的 cookies.txt
   - 关键 cookie: `cticket`、`login_uid`、`_udl`
@@ -121,17 +125,66 @@ POST https://m.ctrip.com/restapi/soa2/10612/GetMessageCount
 }
 ```
 
-## 代码里已定义但当前 CLI 未直接消费的 URL
+### 5. 机票低价日历接口 POST
+
+```text
+POST https://m.ctrip.com/restapi/soa2/15380/bjjson/FlightIntlAndInlandLowestPriceSearch
+```
+
+**代码入口**:
+
+- `web_scraper/sources/ctrip/scrapers/flight.py` -> `FlightLowPriceScraper.search()`
+
+**当前代码使用的请求体**:
+
+```json
+{
+  "departNewCityCode": "SHA",
+  "arriveNewCityCode": "BJS",
+  "startDate": "2026-03-10",
+  "grade": 15,
+  "flag": 0,
+  "channelName": "FlightOnline",
+  "searchType": 1,
+  "passengerList": [
+    {"passengercount": 1, "passengertype": "Adult"}
+  ],
+  "calendarSelections": [
+    {"selectionType": 8, "selectionContent": ["15"]}
+  ]
+}
+```
+
+### 6. 机票结果页 GET
+
+```text
+GET https://flights.ctrip.com/online/list/oneway-sha-bjs?_=1&depdate=2026-03-10&cabin=Y_S_C_F
+```
+
+**代码入口**:
+
+- `web_scraper/sources/ctrip/scrapers/flight.py` -> `FlightSearchScraper.search()`
+
+**说明**:
+
+- 机票搜索主接口带动态签名，直接 `httpx` 调用容易只拿到 `showAuthCode`
+- 当前实现改为打开 PC 结果页，等待 `.flight-item.domestic` 渲染完成后直接解析 DOM
+- 关键字段包括航司、航班号、起降时间、机场、价格、舱位标签、中转信息
+
+## 代码里已定义或实际消费的业务 URL
 
 - `https://m.ctrip.com/restapi/soa2/34951/getAdHotels`
 - `https://m.ctrip.com/restapi/soa2/34951/fetchBrowseRecords`
 - `https://m.ctrip.com/restapi/soa2/34951/getCityList`
 - `https://hotels.ctrip.com/hotels/list`
 - `https://hotels.ctrip.com/hotels/detail/`
+- `https://m.ctrip.com/restapi/soa2/15380/bjjson/FlightIntlAndInlandLowestPriceSearch`
+- `https://flights.ctrip.com/online/list/...`
 
 **说明**:
 
-- 这些常量已经在 `ctrip/config.py` 里准备好，但当前命令集主要仍聚焦用户中心能力
+- 酒店和机票相关常量已在 `ctrip/config.py` 中维护
+- 机票结果页的底层 `batchSearch` 请求仍依赖前端签名，不建议脱离浏览器直接复用
 
 ## 公共请求头
 
@@ -150,3 +203,8 @@ user-agent: Chrome desktop UA
 - `scraper ctrip profile` -> `getMemberSummaryInfo`
 - `scraper ctrip points` -> `GetAvailablePoints`
 - `scraper ctrip messages` -> `GetMessageCount`
+- `scraper ctrip search` -> 酒店搜索页 / `fetchHotelList`
+- `scraper ctrip recommend` -> `getAdHotels`
+- `scraper ctrip history` -> `fetchBrowseRecords`
+- `scraper ctrip flight-calendar` -> `FlightIntlAndInlandLowestPriceSearch`
+- `scraper ctrip flight-search` -> `flights.ctrip.com/online/list/...` 页面 DOM 解析

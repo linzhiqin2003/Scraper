@@ -1,0 +1,10 @@
+{
+  "name": "jd-h5st-signer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JD h5st signing service using jsdom",
+  "dependencies": {
+    "jsdom": "^28.1.0",
+    "xmlhttprequest-ssl": "^4.0.0"
+  }
+}
