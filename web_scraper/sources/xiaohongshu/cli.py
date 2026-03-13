@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from rich.table import Table
 
 from ...core.browser import get_browser
+from ...core.cookies import parse_netscape_cookies, to_playwright
 from ...core.display import (
     ColumnDef,
     console,
@@ -23,7 +25,7 @@ from ...core.display import (
 )
 from ...core.storage import JSONStorage
 from .auth import AuthManager
-from .config import SOURCE_NAME, CATEGORY_CHANNELS, SEARCH_TYPES, COOKIE_PATH, DATA_DIR
+from .config import SOURCE_NAME, CATEGORY_CHANNELS, SEARCH_TYPES, SEARCH_SORT_OPTIONS, SEARCH_NOTE_TYPES, COOKIE_PATH, DATA_DIR
 from .models import Note
 from .scrapers import ExploreScraper, SearchScraper, NoteScraper
 from .scrapers.api import XHSApiScraper
@@ -100,7 +102,6 @@ def status() -> None:
 
 
 # Alias: `auth` → `status`
-auth = app.command("auth", rich_help_panel="Aliases")(status)
 
 
 @app.command()
@@ -111,6 +112,49 @@ def logout() -> None:
         console.print("[green]Session cleared successfully.[/green]")
     else:
         console.print("[dim]No session file found.[/dim]")
+
+
+@app.command("import-cookies")
+def import_cookies(
+    cookies_file: Path = typer.Argument(..., help="Path to Netscape-format cookies.txt file"),
+) -> None:
+    """Import cookies from a browser-exported cookies.txt file.
+
+    Use browser extensions like EditThisCookie or Cookie-Editor to export
+    cookies in Netscape format, then import them here.
+    """
+    if not cookies_file.exists():
+        console.print(f"[red]File not found: {cookies_file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        parsed = parse_netscape_cookies(cookies_file)
+    except Exception as e:
+        console.print(f"[red]Failed to parse cookies file: {e}[/red]")
+        raise typer.Exit(1)
+
+    if not parsed:
+        console.print("[red]No valid cookies found in the file.[/red]")
+        raise typer.Exit(1)
+
+    # Convert to Playwright format and save as cookies.json
+    pw_cookies = to_playwright(parsed)
+    COOKIE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    COOKIE_PATH.write_text(json.dumps(pw_cookies, ensure_ascii=False, indent=2))
+
+    # Count XHS-specific cookies
+    xhs_domains = [c for c in parsed if "xiaohongshu" in c.get("domain", "")]
+    console.print(f"[green]Imported {len(pw_cookies)} cookies ({len(xhs_domains)} for xiaohongshu)[/green]")
+    console.print(f"[dim]Saved to: {COOKIE_PATH}[/dim]")
+
+    # Check for key cookies
+    cookie_names = {c["name"] for c in parsed}
+    key_cookies = ["web_session", "a1", "webId"]
+    missing = [k for k in key_cookies if k not in cookie_names]
+    if missing:
+        console.print(f"[yellow]Warning: Missing key cookies: {', '.join(missing)}[/yellow]")
+    else:
+        console.print("[green]All key cookies present (web_session, a1, webId)[/green]")
 
 
 @app.command()
@@ -172,29 +216,61 @@ def browse(
 
 
 # Alias: `explore` → `browse`
-explore = app.command("explore", rich_help_panel="Aliases")(browse)
 
 
 @app.command()
 def search(
     keyword: str = typer.Argument(..., help="Search keyword"),
-    search_type: str = typer.Option("all", "--type", "-t", help="Search type: all, video, image"),
+    mode: str = typer.Option("api", "--mode", "-m", help="Search mode: api (fast) or dom (legacy)"),
+    search_type: str = typer.Option("image", "--type", "-t", help="Note type filter: all, video, image"),
+    sort: str = typer.Option("general", "--sort", "-s", help="Sort: general, time_descending, popularity_descending, comment_descending, collect_descending"),
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
     no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
 ) -> None:
-    """Search for notes on Xiaohongshu."""
+    """Search for notes on Xiaohongshu.
+
+    Examples:
+        scraper xhs search "AI" -n 30
+        scraper xhs search "美食" --sort popularity_descending
+        scraper xhs search "旅行" --type video --sort time_descending
+        scraper xhs search "穿搭" --mode dom -t image
+    """
     _require_login()
-    if search_type not in SEARCH_TYPES:
+
+    if mode not in ("api", "dom"):
+        console.print("[red]Invalid mode. Choose: api, dom[/red]")
+        raise typer.Exit(1)
+
+    if mode == "dom" and search_type not in SEARCH_TYPES:
         console.print(f"[red]Invalid search type: {search_type}[/red]")
         console.print(f"[dim]Valid types: {', '.join(SEARCH_TYPES.keys())}[/dim]")
         raise typer.Exit(1)
 
+    if mode == "api":
+        if sort not in SEARCH_SORT_OPTIONS:
+            console.print(f"[red]Invalid sort: {sort}[/red]")
+            console.print(f"[dim]Valid sorts: {', '.join(SEARCH_SORT_OPTIONS.keys())}[/dim]")
+            raise typer.Exit(1)
+        if search_type not in SEARCH_NOTE_TYPES:
+            console.print(f"[red]Invalid type for API mode: {search_type}[/red]")
+            console.print(f"[dim]Valid types: {', '.join(SEARCH_NOTE_TYPES.keys())}[/dim]")
+            raise typer.Exit(1)
+
     async def _search():
         async with get_browser(SOURCE_NAME, headless=headless) as browser:
-            scraper = SearchScraper(browser)
-            result = await scraper.scrape(keyword=keyword, search_type=search_type, limit=limit)
+            if mode == "api":
+                scraper = XHSApiScraper(browser)
+                result = await scraper.search_notes(
+                    keyword=keyword,
+                    limit=limit,
+                    sort=sort,
+                    note_type=SEARCH_NOTE_TYPES.get(search_type, 0),
+                )
+            else:
+                scraper = SearchScraper(browser)
+                result = await scraper.scrape(keyword=keyword, search_type=search_type, limit=limit)
 
             if not result.notes:
                 console.print(f"[yellow]No results found for '{keyword}'[/yellow]")
@@ -202,11 +278,15 @@ def search(
 
             rows = []
             for note in result.notes:
+                url = f"https://www.xiaohongshu.com/explore/{note.note_id}"
+                if note.xsec_token:
+                    url += f"?xsec_token={note.xsec_token}"
                 rows.append({
                     "title": note.title[:40] + ("..." if len(note.title) > 40 else ""),
                     "author": note.author.nickname[:15],
                     "likes": str(note.likes),
                     "type": note.note_type,
+                    "url": url,
                 })
 
             display_search_results(
@@ -216,18 +296,15 @@ def search(
                     ColumnDef("Author", "author", style="cyan", max_width=15),
                     ColumnDef("Likes", "likes", style="yellow", width=8),
                     ColumnDef("Type", "type", style="magenta", width=6),
+                    ColumnDef("URL", "url", style="dim"),
                 ],
                 title=f"Search: {keyword}",
                 summary=f"Found {len(result.notes)} results",
             )
 
             if not no_save:
-                import os
-                import re
-                os.makedirs(output, exist_ok=True)
                 storage = JSONStorage(SOURCE_NAME, output_dir=None)
                 storage.output_dir.mkdir(parents=True, exist_ok=True)
-                from datetime import datetime
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_keyword = re.sub(r'[^\w\s-]', '', keyword)[:20].strip()
                 safe_keyword = re.sub(r'[-\s]+', '-', safe_keyword)
@@ -318,100 +395,244 @@ async def _download_note_images(
 
 @app.command()
 def fetch(
-    note_id: str = typer.Argument(..., help="Note ID or URL to fetch"),
-    token: Optional[str] = typer.Option(None, "--token", "-t", help="xsec_token for access"),
-    comments: bool = typer.Option(False, "--comments", "-c", help="Also fetch comments"),
-    max_comments: int = typer.Option(50, "--max-comments", help="Maximum comments to fetch"),
+    urls: List[str] = typer.Argument(..., help="Note URLs or IDs to fetch"),
+    file: Optional[Path] = typer.Option(None, "--file", "-f", help="File containing URLs (one per line)"),
+    mode: str = typer.Option("api", "--mode", "-m", help="Fetch mode: api (fast) or dom (legacy)"),
+    comments: bool = typer.Option(True, "--comments/--no-comments", "-c/-C", help="Fetch comments"),
+    max_comments: int = typer.Option(50, "--max-comments", help="Maximum comments per note"),
     download_images: bool = typer.Option(False, "--download-images", "-d", help="Download images to local"),
-    output: Path = typer.Option(Path("./xhs_output"), "--output", "-o", help="Output directory for images"),
-    headless: bool = typer.Option(False, "--headless/--no-headless", help="Run browser in headless mode"),
+    output: Path = typer.Option(Path("./xhs_output"), "--output", "-o", help="Output directory"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
+    delay: float = typer.Option(2.0, "--delay", help="Delay between requests (seconds)"),
+    no_save: bool = typer.Option(False, "--no-save", help="Don't save JSON results"),
 ) -> None:
-    """Fetch a specific note by ID or URL."""
+    """Fetch one or more notes by URL or ID.
+
+    Supports single and batch fetching. Default mode is 'api' (faster),
+    use '--mode dom' for legacy DOM scraping.
+
+    Examples:
+        scraper xhs fetch <url>
+        scraper xhs fetch <url1> <url2> <url3> -d
+        scraper xhs fetch <url> --mode dom --no-comments
+        scraper xhs fetch -f urls.txt -c -d
+    """
     _require_login()
 
-    # Parse URL if provided
-    parsed_id, parsed_token = _parse_url(note_id)
-    actual_id = parsed_id
-    actual_token = token or parsed_token
+    if mode not in ("api", "dom"):
+        console.print("[red]Invalid mode. Choose: api, dom[/red]")
+        raise typer.Exit(1)
+
+    # Collect all URLs from arguments and file
+    all_urls: List[str] = list(urls) if urls else []
+
+    if file:
+        if not file.exists():
+            console.print(f"[red]File not found: {file}[/red]")
+            raise typer.Exit(1)
+        with open(file, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    all_urls.append(line)
+
+    if not all_urls:
+        console.print("[red]No URLs provided. Use arguments or --file option.[/red]")
+        raise typer.Exit(1)
+
+    is_batch = len(all_urls) > 1
 
     async def _fetch():
+        results: List[Note] = []
+        failed: List[str] = []
+
         async with get_browser(SOURCE_NAME, headless=headless) as browser:
-            scraper = NoteScraper(browser)
-            result, _ = await scraper.scrape(
-                note_id=actual_id,
-                xsec_token=actual_token,
-                fetch_comments=comments,
-                max_comments=max_comments,
-            )
+            if mode == "api":
+                scraper = XHSApiScraper(browser)
+            else:
+                scraper = NoteScraper(browser)
 
-            if not result:
-                console.print(f"[red]Failed to fetch note: {actual_id}[/red]")
-                raise typer.Exit(1)
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn() if is_batch else TextColumn(""),
+                TaskProgressColumn() if is_batch else TextColumn(""),
+                console=console,
+            ) as progress:
 
-            # Display note content
-            content = f"# {result.title}\n\n"
-            content += f"**Author:** {result.author.nickname}\n"
-            content += f"**Published:** {result.publish_time}\n"
-            content += f"**Likes:** {result.likes} | **Comments:** {result.comments_count} | **Collects:** {result.collects}\n"
-            content += f"**Images:** {len(result.images)}\n\n"
-            if result.tags:
-                content += f"**Tags:** {', '.join(result.tags)}\n\n"
-            content += "---\n\n"
-            content += result.content
+                fetch_task = progress.add_task(
+                    "[cyan]Fetching notes...",
+                    total=len(all_urls),
+                )
 
-            console.print(Panel(content, title=f"[bold]{result.title}[/]", border_style="cyan"))
+                for i, url in enumerate(all_urls):
+                    # Parse URL
+                    if mode == "api":
+                        note_id, _ = XHSApiScraper.parse_note_url(url)
+                    else:
+                        note_id, _ = _parse_url(url)
+                    short_id = note_id[:12] if note_id else url[:20]
 
-            # Display comments if fetched
-            if comments and result.comments:
+                    progress.update(
+                        fetch_task,
+                        description=f"[cyan]Fetching {short_id}...",
+                    )
+
+                    try:
+                        if mode == "api":
+                            note = await scraper.fetch_note(
+                                url=url,
+                                fetch_comments=comments,
+                                max_comments=max_comments,
+                                silent=is_batch,
+                            )
+                        else:
+                            _, xsec_token = _parse_url(url)
+                            note, _ = await scraper.scrape(
+                                note_id=note_id,
+                                xsec_token=xsec_token,
+                                fetch_comments=comments,
+                                max_comments=max_comments,
+                                silent=is_batch,
+                            )
+
+                        if note:
+                            results.append(note)
+                        else:
+                            failed.append(short_id)
+
+                    except Exception as e:
+                        console.print(f"[dim]Error fetching {short_id}: {e}[/dim]")
+                        failed.append(short_id)
+
+                    progress.update(fetch_task, advance=1)
+
+                    # Delay between requests (except last one)
+                    if i < len(all_urls) - 1:
+                        await asyncio.sleep(delay)
+
+        if not results:
+            console.print("[yellow]No notes fetched successfully.[/yellow]")
+            return
+
+        # ── Display ──────────────────────────────────────────────────────
+        if is_batch:
+            # Table summary for batch
+            table = Table(title="Fetch Results", show_header=True, header_style="bold cyan")
+            table.add_column("Note ID", style="dim", width=24)
+            table.add_column("Title", max_width=35)
+            table.add_column("Author", style="cyan", max_width=15)
+            table.add_column("Likes", style="yellow", justify="right", width=8)
+            table.add_column("Comments", style="green", justify="right", width=8)
+            table.add_column("Images", style="magenta", justify="right", width=8)
+
+            for note in results:
+                table.add_row(
+                    note.note_id,
+                    note.title[:35] + ("..." if len(note.title) > 35 else ""),
+                    note.author.nickname[:15],
+                    str(note.likes),
+                    str(len(note.comments)) if comments else str(note.comments_count),
+                    str(len(note.images)),
+                )
+
+            console.print()
+            console.print(table)
+            console.print()
+            console.print(f"[green]Fetched: {len(results)}/{len(all_urls)} notes[/green]")
+            if failed:
+                console.print(f"[yellow]Failed: {', '.join(failed[:5])}{'...' if len(failed) > 5 else ''}[/yellow]")
+        else:
+            # Detailed display for single note
+            note = results[0]
+            content = f"# {note.title}\n\n"
+            content += f"**Author:** {note.author.nickname}\n"
+            if note.publish_time:
+                pub_str = note.publish_time.strftime('%Y-%m-%d %H:%M') if hasattr(note.publish_time, 'strftime') else str(note.publish_time)
+                content += f"**Published:** {pub_str}\n"
+            if note.ip_location:
+                content += f"**IP Location:** {note.ip_location}\n"
+            content += f"**Likes:** {note.likes} | **Comments:** {note.comments_count} | **Collects:** {note.collects} | **Shares:** {note.shares}\n"
+            content += f"**Images:** {len(note.images)} | **Type:** {note.note_type}\n"
+            if note.tags:
+                content += f"**Tags:** {', '.join(note.tags)}\n"
+            content += "\n---\n\n"
+            content += note.content
+
+            console.print(Panel(content, title=f"[bold]{note.title}[/]", border_style="cyan"))
+
+            # Comments
+            if comments and note.comments:
                 console.print()
-                console.print(f"[cyan]Comments ({len(result.comments)}):[/cyan]")
-                for i, comment in enumerate(result.comments[:10], 1):
-                    console.print(f"  {i}. [bold]{comment.author.nickname}[/bold]: {comment.content[:80]}{'...' if len(comment.content) > 80 else ''}")
+                console.print(f"[cyan]Comments ({len(note.comments)}):[/cyan]")
+                for j, comment in enumerate(note.comments[:10], 1):
+                    loc = f" [{comment.ip_location}]" if hasattr(comment, 'ip_location') and comment.ip_location else ""
+                    console.print(
+                        f"  {j}. [bold]{comment.author.nickname}[/bold]{loc}: "
+                        f"{comment.content[:80]}{'...' if len(comment.content) > 80 else ''}"
+                    )
                     if comment.sub_comments:
                         for sub in comment.sub_comments[:3]:
-                            console.print(f"     ↳ [dim]{sub.author.nickname}: {sub.content[:60]}{'...' if len(sub.content) > 60 else ''}[/dim]")
-                if len(result.comments) > 10:
-                    console.print(f"  [dim]... and {len(result.comments) - 10} more comments[/dim]")
+                            console.print(
+                                f"     ↳ [dim]{sub.author.nickname}: "
+                                f"{sub.content[:60]}{'...' if len(sub.content) > 60 else ''}[/dim]"
+                            )
+                if len(note.comments) > 10:
+                    console.print(f"  [dim]... and {len(note.comments) - 10} more comments[/dim]")
 
-            # Download images if requested
-            if download_images and result.images:
-                output.mkdir(parents=True, exist_ok=True)
-                images_dir = output / "images" / actual_id
-                images_dir.mkdir(parents=True, exist_ok=True)
-
+            # Image URLs
+            if note.images:
                 console.print()
-                console.print(f"[cyan]Downloading {len(result.images)} images...[/cyan]")
+                console.print(f"[cyan]Images ({len(note.images)}):[/cyan]")
+                for j, img_url in enumerate(note.images, 1):
+                    console.print(f"  {j}. {img_url}")
 
+        # ── Download images ──────────────────────────────────────────────
+        if download_images:
+            notes_with_images = [n for n in results if n.images]
+            if notes_with_images:
+                console.print()
+                console.print(f"[cyan]Downloading images...[/cyan]")
                 async with httpx.AsyncClient(
                     headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
                     follow_redirects=True,
                 ) as client:
-                    downloaded = 0
-                    for i, img_url in enumerate(result.images):
-                        ext = ".jpg"
-                        if "png" in img_url.lower():
-                            ext = ".png"
-                        elif "webp" in img_url.lower():
-                            ext = ".webp"
+                    for note in notes_with_images:
+                        note_dir = output / "images" / note.note_id
+                        note_dir.mkdir(parents=True, exist_ok=True)
+                        downloaded = 0
+                        for j, img_url in enumerate(note.images):
+                            ext = ".jpg"
+                            if "png" in img_url.lower():
+                                ext = ".png"
+                            elif "webp" in img_url.lower():
+                                ext = ".webp"
+                            save_path = note_dir / f"image_{j+1:02d}{ext}"
+                            if await _download_image(img_url, save_path, client):
+                                downloaded += 1
+                        console.print(f"  [green]{note.note_id}: {downloaded}/{len(note.images)} images → {note_dir}[/green]")
 
-                        save_path = images_dir / f"image_{i+1:02d}{ext}"
-                        if await _download_image(img_url, save_path, client):
-                            downloaded += 1
+        # ── Save ─────────────────────────────────────────────────────────
+        if not no_save and results:
+            output.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if len(results) == 1:
+                json_path = output / f"note_{results[0].note_id}_{timestamp}.json"
+            else:
+                json_path = output / f"batch_{timestamp}.json"
 
-                    console.print(f"[green]Downloaded {downloaded}/{len(result.images)} images to {images_dir}[/green]")
-
-            # Display image URLs
-            if result.images:
-                console.print()
-                console.print("[cyan]Image URLs:[/cyan]")
-                for i, url in enumerate(result.images, 1):
-                    console.print(f"  {i}. {url[:80]}...")
+            data = [n.model_dump(mode="json") for n in results]
+            with open(json_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+            console.print(f"[dim]Saved to: {json_path}[/dim]")
 
     run_async(_fetch())
 
 
-# Alias: `note` → `fetch`
-note = app.command("note", rich_help_panel="Aliases")(fetch)
+# Aliases for backward compatibility
+app.command("note", hidden=True)(fetch)
+app.command("batch-fetch", hidden=True)(fetch)
+app.command("api-fetch", hidden=True)(fetch)
 
 
 @app.command()
@@ -438,349 +659,21 @@ def options() -> None:
             ColumnDef("Type", "type", style="cyan"),
             ColumnDef("Param", "param", style="dim"),
         ],
-        title="Search Types",
+        title="Search Types (DOM mode)",
+    )
+
+    console.print()
+
+    # API search sort options
+    sort_rows = [{"sort": k, "label": v} for k, v in SEARCH_SORT_OPTIONS.items()]
+    display_options(
+        items=sort_rows,
+        columns=[
+            ColumnDef("Sort (--sort)", "sort", style="cyan"),
+            ColumnDef("Label", "label"),
+        ],
+        title="Search Sort (API mode)",
     )
 
 
 # Alias: `categories` → `options`
-categories = app.command("categories", rich_help_panel="Aliases")(options)
-
-
-@app.command("batch-fetch")
-def batch_fetch(
-    urls: List[str] = typer.Argument(None, help="List of URLs or note IDs to fetch"),
-    file: Optional[Path] = typer.Option(None, "--file", "-f", help="File containing URLs (one per line)"),
-    output: Path = typer.Option(Path("./xhs_output"), "--output", "-o", help="Output directory"),
-    comments: bool = typer.Option(False, "--comments", "-c", help="Also fetch comments"),
-    max_comments: int = typer.Option(50, "--max-comments", help="Maximum comments per note"),
-    download_images: bool = typer.Option(False, "--download-images", "-d", help="Download images to local"),
-    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    delay: float = typer.Option(3.0, "--delay", help="Delay between requests (seconds)"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save JSON results"),
-) -> None:
-    """Batch fetch multiple notes by URLs or IDs.
-
-    Examples:
-        scraper xhs batch-fetch URL1 URL2 URL3
-        scraper xhs batch-fetch -f urls.txt -c -d
-        scraper xhs batch-fetch NOTE_ID1 NOTE_ID2 --comments --download-images
-    """
-    _require_login()
-
-    # Collect URLs from arguments and file
-    all_urls: List[str] = []
-
-    if urls:
-        all_urls.extend(urls)
-
-    if file:
-        if not file.exists():
-            console.print(f"[red]File not found: {file}[/red]")
-            raise typer.Exit(1)
-        with open(file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    all_urls.append(line)
-
-    if not all_urls:
-        console.print("[red]No URLs provided. Use arguments or --file option.[/red]")
-        raise typer.Exit(1)
-
-    # Parse URLs to get note IDs and tokens
-    parsed_notes = []
-    for url in all_urls:
-        note_id, xsec_token = _parse_url(url)
-        if note_id:
-            parsed_notes.append({"note_id": note_id, "xsec_token": xsec_token, "url": url})
-
-    if not parsed_notes:
-        console.print("[red]No valid note IDs found in provided URLs.[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[cyan]Batch fetching {len(parsed_notes)} notes...[/cyan]")
-    if comments:
-        console.print(f"[dim]Comments enabled (max {max_comments} per note)[/dim]")
-    if download_images:
-        console.print(f"[dim]Image download enabled[/dim]")
-
-    async def _batch_fetch():
-        results: List[Note] = []
-        failed: List[str] = []
-        all_downloaded_images: List[Path] = []
-
-        output.mkdir(parents=True, exist_ok=True)
-        images_dir = output / "images"
-
-        async with get_browser(SOURCE_NAME, headless=headless) as browser:
-            scraper = NoteScraper(browser)
-
-            # Create HTTP client for image downloads
-            async with httpx.AsyncClient(
-                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
-                follow_redirects=True,
-            ) as http_client:
-
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TaskProgressColumn(),
-                    console=console,
-                ) as progress:
-
-                    fetch_task = progress.add_task("[cyan]Fetching notes...", total=len(parsed_notes))
-
-                    for i, item in enumerate(parsed_notes):
-                        note_id = item["note_id"]
-                        xsec_token = item["xsec_token"]
-
-                        progress.update(fetch_task, description=f"[cyan]Fetching {note_id[:8]}...")
-
-                        try:
-                            note, _ = await scraper.scrape(
-                                note_id=note_id,
-                                xsec_token=xsec_token,
-                                silent=True,
-                                fetch_comments=comments,
-                                max_comments=max_comments,
-                            )
-
-                            if note:
-                                results.append(note)
-
-                                # Download images if requested
-                                if download_images and note.images:
-                                    img_task = progress.add_task(
-                                        f"[dim]Downloading images for {note_id[:8]}...",
-                                        total=len(note.images),
-                                    )
-                                    downloaded = await _download_note_images(
-                                        note, images_dir, http_client, progress, img_task
-                                    )
-                                    all_downloaded_images.extend(downloaded)
-                                    progress.remove_task(img_task)
-                            else:
-                                failed.append(note_id)
-
-                        except Exception as e:
-                            console.print(f"[dim]Error fetching {note_id}: {e}[/dim]")
-                            failed.append(note_id)
-
-                        progress.update(fetch_task, advance=1)
-
-                        # Delay between requests (except last one)
-                        if i < len(parsed_notes) - 1:
-                            await asyncio.sleep(delay)
-
-        # Display results summary
-        console.print()
-        table = Table(title="Batch Fetch Results", show_header=True, header_style="bold cyan")
-        table.add_column("Note ID", style="dim", width=24)
-        table.add_column("Title", max_width=35)
-        table.add_column("Author", style="cyan", max_width=15)
-        table.add_column("Likes", style="yellow", justify="right", width=8)
-        table.add_column("Comments", style="green", justify="right", width=8)
-        table.add_column("Images", style="magenta", justify="right", width=8)
-
-        for note in results:
-            table.add_row(
-                note.note_id,
-                note.title[:35] + ("..." if len(note.title) > 35 else ""),
-                note.author.nickname[:15],
-                str(note.likes),
-                str(len(note.comments)) if comments else str(note.comments_count),
-                str(len(note.images)),
-            )
-
-        console.print(table)
-
-        # Summary
-        console.print()
-        console.print(f"[green]Successfully fetched: {len(results)}/{len(parsed_notes)} notes[/green]")
-        if failed:
-            console.print(f"[yellow]Failed: {len(failed)} notes[/yellow]")
-            console.print(f"[dim]Failed IDs: {', '.join(failed[:5])}{'...' if len(failed) > 5 else ''}[/dim]")
-        if download_images and all_downloaded_images:
-            console.print(f"[magenta]Downloaded: {len(all_downloaded_images)} images to {images_dir}[/magenta]")
-
-        # Save results
-        if not no_save and results:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            json_path = output / f"batch_results_{timestamp}.json"
-            storage = JSONStorage(SOURCE_NAME, output_dir=output)
-
-            # Convert to dict for JSON serialization
-            data = [note.model_dump(mode="json") for note in results]
-            with open(json_path, "w", encoding="utf-8") as f:
-                import json
-                json.dump(data, f, ensure_ascii=False, indent=2)
-
-            console.print(f"[dim]Results saved to: {json_path}[/dim]")
-
-    run_async(_batch_fetch())
-
-
-@app.command("api-fetch")
-def api_fetch(
-    urls: List[str] = typer.Argument(..., help="Note URLs or IDs to fetch"),
-    comments: bool = typer.Option(True, "--comments/--no-comments", "-c/-C", help="Fetch comments"),
-    max_comments: int = typer.Option(50, "--max-comments", help="Maximum comments per note"),
-    download_images: bool = typer.Option(False, "--download-images", "-d", help="Download images to local"),
-    output: Path = typer.Option(Path("./xhs_output"), "--output", "-o", help="Output directory"),
-    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    delay: float = typer.Option(2.0, "--delay", help="Delay between requests (seconds)"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save JSON results"),
-) -> None:
-    """Fetch notes via API extraction (faster & more reliable).
-
-    Uses SSR __INITIAL_STATE__ for note data and browser API for comments.
-    Much faster than DOM scraping.
-
-    Examples:
-        scraper xhs api-fetch https://www.xiaohongshu.com/explore/xxx?xsec_token=yyy
-        scraper xhs api-fetch URL1 URL2 URL3 -d
-        scraper xhs api-fetch NOTE_ID --no-comments
-    """
-    _require_login()
-
-    async def _api_fetch():
-        results: List[Note] = []
-        failed: List[str] = []
-
-        async with get_browser(SOURCE_NAME, headless=headless) as browser:
-            scraper = XHSApiScraper(browser)
-
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-            ) as progress:
-
-                fetch_task = progress.add_task("[cyan]Fetching notes...", total=len(urls))
-
-                for i, url in enumerate(urls):
-                    note_id, _ = XHSApiScraper.parse_note_url(url)
-                    short_id = note_id[:12] if note_id else url[:20]
-                    progress.update(fetch_task, description=f"[cyan]Fetching {short_id}...")
-
-                    try:
-                        note = await scraper.fetch_note(
-                            url=url,
-                            fetch_comments=comments,
-                            max_comments=max_comments,
-                            silent=True,
-                        )
-
-                        if note:
-                            results.append(note)
-                        else:
-                            failed.append(short_id)
-
-                    except Exception as e:
-                        console.print(f"[dim]Error fetching {short_id}: {e}[/dim]")
-                        failed.append(short_id)
-
-                    progress.update(fetch_task, advance=1)
-
-                    # Delay between requests (except last one)
-                    if i < len(urls) - 1:
-                        await asyncio.sleep(delay)
-
-        # Display results
-        for note in results:
-            content = f"# {note.title}\n\n"
-            content += f"**Author:** {note.author.nickname}\n"
-            if note.publish_time:
-                content += f"**Published:** {note.publish_time.strftime('%Y-%m-%d %H:%M')}\n"
-            if note.ip_location:
-                content += f"**IP Location:** {note.ip_location}\n"
-            content += f"**Likes:** {note.likes} | **Comments:** {note.comments_count} | **Collects:** {note.collects} | **Shares:** {note.shares}\n"
-            content += f"**Images:** {len(note.images)} | **Type:** {note.note_type}\n"
-            if note.tags:
-                content += f"**Tags:** {', '.join(note.tags)}\n"
-            content += "\n---\n\n"
-            content += note.content
-
-            console.print(Panel(content, title=f"[bold]{note.title}[/]", border_style="cyan"))
-
-            # Display comments
-            if comments and note.comments:
-                console.print(f"[cyan]Comments ({len(note.comments)}):[/cyan]")
-                for j, comment in enumerate(note.comments[:10], 1):
-                    loc = f" [{comment.ip_location}]" if comment.ip_location else ""
-                    console.print(
-                        f"  {j}. [bold]{comment.author.nickname}[/bold]{loc}: "
-                        f"{comment.content[:80]}{'...' if len(comment.content) > 80 else ''}"
-                        f"  [dim]👍 {comment.likes}[/dim]"
-                    )
-                    for sub in comment.sub_comments[:3]:
-                        console.print(
-                            f"     ↳ [dim]{sub.author.nickname}: "
-                            f"{sub.content[:60]}{'...' if len(sub.content) > 60 else ''}[/dim]"
-                        )
-                if len(note.comments) > 10:
-                    console.print(f"  [dim]... and {len(note.comments) - 10} more comments[/dim]")
-
-            # Display image URLs
-            if note.images:
-                console.print(f"[cyan]Images ({len(note.images)}):[/cyan]")
-                for j, img_url in enumerate(note.images, 1):
-                    console.print(f"  {j}. {img_url}")
-
-            console.print()
-
-        # Download images
-        if download_images:
-            images_to_download = [(n, img) for n in results for img in n.images if n.images]
-            if images_to_download:
-                console.print(f"[cyan]Downloading images...[/cyan]")
-                async with httpx.AsyncClient(
-                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
-                    follow_redirects=True,
-                ) as client:
-                    for note in results:
-                        if not note.images:
-                            continue
-                        note_dir = output / "images" / note.note_id
-                        note_dir.mkdir(parents=True, exist_ok=True)
-                        downloaded = 0
-                        for j, img_url in enumerate(note.images):
-                            ext = ".jpg"
-                            if "png" in img_url.lower():
-                                ext = ".png"
-                            elif "webp" in img_url.lower():
-                                ext = ".webp"
-                            save_path = note_dir / f"image_{j+1:02d}{ext}"
-                            if await _download_image(img_url, save_path, client):
-                                downloaded += 1
-                        console.print(f"  [green]{note.note_id}: {downloaded}/{len(note.images)} images → {note_dir}[/green]")
-
-        # Summary
-        if len(urls) > 1:
-            console.print(f"[green]Fetched: {len(results)}/{len(urls)} notes[/green]")
-            if failed:
-                console.print(f"[yellow]Failed: {', '.join(failed)}[/yellow]")
-
-        # Save results
-        if not no_save and results:
-            output.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            if len(results) == 1:
-                json_path = output / f"note_{results[0].note_id}_{timestamp}.json"
-            else:
-                json_path = output / f"api_batch_{timestamp}.json"
-
-            data = [note.model_dump(mode="json") for note in results]
-            with open(json_path, "w", encoding="utf-8") as f:
-                import json
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            console.print(f"[dim]Saved to: {json_path}[/dim]")
-
-    run_async(_api_fetch())
-
-
-# Alias: `batch` → `batch-fetch`
-batch = app.command("batch", rich_help_panel="Aliases")(batch_fetch)

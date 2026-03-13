@@ -7,7 +7,13 @@ from urllib.parse import unquote
 
 import httpx
 
-from ...core.browser import get_data_dir
+from ...core.cookies import (
+    get_cookies_path as _get_cookies_path,
+    load_cookies_httpx,
+    load_cookies_playwright as _load_pw,
+    parse_netscape_cookies as _parse_raw,
+    to_header_string,
+)
 from .config import SOURCE_NAME, REQUIRED_COOKIES, AUTH_COOKIES, DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
@@ -15,77 +21,17 @@ logger = logging.getLogger(__name__)
 
 def get_cookies_path() -> Path:
     """Get default cookies.txt path for JD."""
-    return get_data_dir(SOURCE_NAME) / "cookies.txt"
-
-
-def parse_netscape_cookies(cookies_file: Path) -> httpx.Cookies:
-    """Parse Netscape cookies.txt format into httpx.Cookies."""
-    cookies = httpx.Cookies()
-
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
-
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-
-            domain, _, path, secure, _, name, value = parts[:7]
-            cookies.set(name, value, domain=domain, path=path)
-
-    return cookies
-
-
-def netscape_to_playwright(cookies_file: Path) -> List[Dict]:
-    """Parse Netscape cookies.txt into Playwright cookie format.
-
-    Returns list of dicts with name, value, domain, path, secure, httpOnly fields.
-    """
-    result = []
-
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
-
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-
-            domain, _, path, secure, expiry, name, value = parts[:7]
-            cookie = {
-                "name": name,
-                "value": value,
-                "domain": domain,
-                "path": path,
-                "secure": secure.upper() == "TRUE",
-                "httpOnly": False,
-            }
-            try:
-                exp = int(expiry)
-                if exp > 0:
-                    cookie["expires"] = exp
-            except ValueError:
-                pass
-            result.append(cookie)
-
-    return result
+    return _get_cookies_path(SOURCE_NAME)
 
 
 def load_cookies(cookies_path: Path | None = None) -> httpx.Cookies:
     """Load cookies from file, defaulting to ~/.web_scraper/jd/cookies.txt."""
-    if cookies_path is None:
-        cookies_path = get_cookies_path()
-    return parse_netscape_cookies(cookies_path)
+    return load_cookies_httpx(SOURCE_NAME, cookies_path)
+
+
+def netscape_to_playwright(cookies_file: Path) -> List[Dict]:
+    """Parse Netscape cookies.txt into Playwright cookie format."""
+    return _load_pw(SOURCE_NAME, cookies_file)
 
 
 def load_cookies_raw(cookies_path: Path | None = None) -> str:
@@ -93,21 +39,10 @@ def load_cookies_raw(cookies_path: Path | None = None) -> str:
 
     Used by Node.js h5st signing service which needs cookies as a string.
     """
-    if cookies_path is None:
-        cookies_path = get_cookies_path()
-    if not cookies_path.exists():
-        raise FileNotFoundError(f"Cookies file not found: {cookies_path}")
-
-    pairs = []
-    with open(cookies_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 7:
-                pairs.append(f"{parts[5]}={parts[6]}")
-    return "; ".join(pairs)
+    path = cookies_path or get_cookies_path()
+    if not path.exists():
+        raise FileNotFoundError(f"Cookies file not found: {path}")
+    return to_header_string(_parse_raw(path))
 
 
 def validate_cookies(cookies: httpx.Cookies) -> bool:
@@ -141,10 +76,7 @@ def get_eid_token(cookies: httpx.Cookies) -> str | None:
 
 
 def check_cookies_valid_sync(cookies: httpx.Cookies) -> Tuple[bool, str]:
-    """Verify cookies by calling a lightweight JD API.
-
-    Returns (is_valid, message).
-    """
+    """Verify cookies by calling a lightweight JD API."""
     test_url = "https://api.m.jd.com/api"
     params = {
         "appid": "item-v3",
@@ -166,7 +98,6 @@ def check_cookies_valid_sync(cookies: httpx.Cookies) -> Tuple[bool, str]:
                 return False, f"HTTP {resp.status_code}"
 
             data = resp.json()
-            # Check if user is logged in
             if isinstance(data, dict):
                 user_data = data.get("data", {})
                 if isinstance(user_data, dict) and user_data.get("isLogin"):

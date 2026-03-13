@@ -232,7 +232,7 @@ def _fetch_with_playwright(url: str) -> Tuple[str, str]:
     Raises:
         Exception on navigation errors.
     """
-    from playwright.sync_api import sync_playwright
+    from patchright.sync_api import sync_playwright
     from ....core.browser import STEALTH_SCRIPT, get_random_user_agent
 
     with sync_playwright() as p:

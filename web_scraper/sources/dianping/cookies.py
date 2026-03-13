@@ -4,7 +4,11 @@ from typing import Dict, Tuple
 
 import httpx
 
-from ...core.browser import get_data_dir
+from ...core.cookies import (
+    get_cookies_path as _get_cookies_path,
+    load_cookies_httpx,
+    load_cookies_playwright as _load_pw,
+)
 from .config import (
     SOURCE_NAME,
     AUTH_COOKIE_NAMES,
@@ -16,69 +20,17 @@ from .config import (
 
 def get_cookies_path() -> Path:
     """Get default cookies.txt path for Dianping."""
-    return get_data_dir(SOURCE_NAME) / "cookies.txt"
-
-
-def parse_netscape_cookies(cookies_file: Path) -> httpx.Cookies:
-    """Parse Netscape cookies.txt format into httpx.Cookies."""
-    cookies = httpx.Cookies()
-
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies 文件不存在: {cookies_file}")
-
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-            domain, _, path, _, _, name, value = parts[:7]
-            cookies.set(name, value, domain=domain, path=path)
-
-    return cookies
-
-
-def load_playwright_cookies(cookies_path: Path | None = None) -> list[dict]:
-    """Load Netscape cookies into Playwright cookie objects."""
-    cookies_file = cookies_path or get_cookies_path()
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies 文件不存在: {cookies_file}")
-
-    cookies: list[dict] = []
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-
-            domain, _, path, secure, expires, name, value = parts[:7]
-            cookie = {
-                "name": name,
-                "value": value,
-                "domain": domain,
-                "path": path or "/",
-                "secure": secure.upper() == "TRUE",
-            }
-            try:
-                expiry = int(expires)
-                if expiry > 0:
-                    cookie["expires"] = expiry
-            except Exception:
-                pass
-            cookies.append(cookie)
-
-    return cookies
+    return _get_cookies_path(SOURCE_NAME)
 
 
 def load_cookies(cookies_path: Path | None = None) -> httpx.Cookies:
     """Load cookies, defaulting to ~/.web_scraper/dianping/cookies.txt."""
-    return parse_netscape_cookies(cookies_path or get_cookies_path())
+    return load_cookies_httpx(SOURCE_NAME, cookies_path)
+
+
+def load_playwright_cookies(cookies_path: Path | None = None) -> list[dict]:
+    """Load Netscape cookies into Playwright cookie objects."""
+    return _load_pw(SOURCE_NAME, cookies_path)
 
 
 def get_cookie_dict(cookies: httpx.Cookies) -> Dict[str, str]:

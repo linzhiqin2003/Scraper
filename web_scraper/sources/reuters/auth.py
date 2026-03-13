@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from ...core.browser import (
     create_browser,

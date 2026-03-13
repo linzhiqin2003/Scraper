@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
+from patchright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 
 from ..config import (
     CTRIP_RATE_LIMIT,

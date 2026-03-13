@@ -35,7 +35,7 @@ CATEGORY_CHANNELS: Dict[str, str] = {
     "健身": "homefeed.fitness_v3",
 }
 
-# Search type to URL parameter mapping
+# Search type to URL parameter mapping (for DOM mode)
 SEARCH_TYPES: Dict[str, str] = {
     "all": "51",
     "notes": "51",
@@ -43,6 +43,25 @@ SEARCH_TYPES: Dict[str, str] = {
     "image": "54",
     "user": "55",
 }
+
+# Search sort options (for API mode)
+SEARCH_SORT_OPTIONS: Dict[str, str] = {
+    "general": "综合",
+    "time_descending": "最新",
+    "popularity_descending": "最多点赞",
+    "comment_descending": "最多评论",
+    "collect_descending": "最多收藏",
+}
+
+# Search note type (for API mode): 0=不限, 1=视频, 2=图文
+SEARCH_NOTE_TYPES: Dict[str, int] = {
+    "all": 0,
+    "video": 1,
+    "image": 2,
+}
+
+# Search API endpoint
+SEARCH_API_URL = "https://edith.xiaohongshu.com/api/sns/web/v1/search/notes"
 
 
 @dataclass

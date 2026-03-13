@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright, Page, Browser
+from patchright.sync_api import sync_playwright, Page, Browser
 
 from ..config import (
     BASE_URL,

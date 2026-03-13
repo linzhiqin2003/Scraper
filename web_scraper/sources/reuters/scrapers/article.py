@@ -3,7 +3,7 @@
 import time
 from typing import List, Optional
 
-from playwright.sync_api import Page
+from patchright.sync_api import Page
 
 from ....core.base import BaseScraper
 from ....core.exceptions import ContentNotFoundError, PaywallError, CaptchaError

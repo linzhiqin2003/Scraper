@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright
 
 from ....core.browser import STEALTH_SCRIPT, get_data_dir, get_state_path
 from ..config import BASE_URL, SOURCE_NAME, Timeouts

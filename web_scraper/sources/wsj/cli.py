@@ -31,6 +31,74 @@ app = typer.Typer(
 
 
 # =============================================================================
+# Login
+# =============================================================================
+
+
+@app.command()
+def login(
+    email: Optional[str] = typer.Option(None, "--email", "-e", help="WSJ account email (or WSJ_EMAIL env var)"),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="WSJ account password (or WSJ_PASSWORD env var)"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Manual login in browser"),
+    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser headlessly (default: headless)"),
+) -> None:
+    """Login to WSJ via browser automation (Patchright).
+
+    Automated mode (default): reads email/password from env vars WSJ_EMAIL and
+    WSJ_PASSWORD, or pass via -e/-p flags. Auto-solves CAPTCHA in headless mode.
+    Interactive mode (-i): opens browser for you to login manually.
+
+    Examples:
+      scraper wsj login                            # uses env vars, headless
+      scraper wsj login -e user@example.com -p pw  # explicit credentials
+      scraper wsj login -i                         # manual browser login
+    """
+    import os
+    from .auth import login as auto_login, login_interactive
+
+    if interactive:
+        console.print("[bold]Opening browser for manual login...[/bold]")
+        console.print("[dim]Complete login in the browser window. You have 5 minutes.[/dim]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            progress.add_task("Waiting for login...", total=None)
+            ok, msg = login_interactive(email=email, headless=headless)
+    else:
+        if not email:
+            email = os.environ.get("WSJ_EMAIL") or typer.prompt("Email")
+        if not password:
+            password = os.environ.get("WSJ_PASSWORD") or typer.prompt("Password", hide_input=True)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            progress.add_task("Logging in...", total=None)
+            ok, msg = auto_login(email, password, headless=headless)
+
+    if ok:
+        console.print(f"[green]✓[/green] {msg}")
+    else:
+        console.print(f"[red]✗[/red] {msg}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def logout() -> None:
+    """Clear saved cookies."""
+    path = get_cookies_path()
+    if path.exists():
+        path.unlink()
+        console.print("[green]Cookies cleared[/green]")
+    else:
+        console.print("[dim]No cookies to clear[/dim]")
+
+
+# =============================================================================
 # Cookie Management
 # =============================================================================
 
@@ -48,10 +116,10 @@ def status(
         cookies = load_cookies(cookies_path)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        console.print("\n[yellow]To export cookies:[/yellow]")
-        console.print("1. Install browser extension 'cookies.txt'")
-        console.print("2. Log in to wsj.com")
-        console.print(f"3. Export cookies to '{cookies_path}'")
+        console.print("\n[yellow]To login:[/yellow]")
+        console.print("  scraper wsj login -e <email> -p <password>")
+        console.print("\n[yellow]Or import cookies manually:[/yellow]")
+        console.print(f"  scraper wsj import-cookies <cookies.txt>")
         raise typer.Exit(1)
 
     if not validate_cookies(cookies):
@@ -72,6 +140,7 @@ def status(
         console.print(f"[green]✓[/green] {message}")
     else:
         console.print(f"[red]✗[/red] {message}")
+        console.print("\n[dim]Try re-login: scraper wsj login -e <email> -p <password>[/dim]")
         raise typer.Exit(1)
 
 
@@ -88,12 +157,9 @@ def import_cookies(
         console.print(f"[red]Error:[/red] File not found: {source}")
         raise typer.Exit(1)
 
-    dest = get_cookies_path()
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    from ...core.cookies import import_cookies as _import_cookies
 
-    import shutil
-
-    shutil.copy(source, dest)
+    dest = _import_cookies(source, SOURCE_NAME)
     console.print(f"[green]✓[/green] Cookies imported to {dest}")
 
 

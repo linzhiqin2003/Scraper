@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-from playwright.sync_api import (
+from patchright.sync_api import (
     Browser,
     BrowserContext,
     Page,
@@ -187,7 +187,7 @@ def _launch_playwright(pw: Playwright, headless: bool) -> Iterator[Page]:
             continue
 
     if browser is None:
-        raise RuntimeError("Failed to launch browser. Run: playwright install chromium")
+        raise RuntimeError("Failed to launch browser. Run: patchright install chromium")
 
     context_opts = {
         "viewport": {"width": 1440, "height": 1024},

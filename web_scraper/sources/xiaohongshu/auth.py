@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from playwright.async_api import Page
+from patchright.async_api import Page
 from rich.console import Console
 from rich.prompt import Prompt
 

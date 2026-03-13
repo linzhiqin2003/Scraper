@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Iterator, Optional
 from urllib.parse import urlparse
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
 
 from ...core.browser import get_state_path
 from .config import (
@@ -173,10 +173,10 @@ def _friendly_browser_error(exc: Exception) -> str:
     if "Target page, context or browser has been closed" in msg:
         return (
             "Browser crashed at startup. Please retry login. "
-            "If it keeps happening, run 'playwright install --force chromium'."
+            "If it keeps happening, run 'patchright install --force chromium'."
         )
     if "Executable doesn't exist" in msg:
-        return "Playwright browser is missing. Run: playwright install chromium"
+        return "Patchright browser is missing. Run: patchright install chromium"
     return f"Browser startup failed: {msg}"
 
 

@@ -13,12 +13,12 @@ import re
 from datetime import datetime
 from typing import Optional, List, Tuple
 
-from playwright.async_api import Page
+from patchright.async_api import Page
 from rich.console import Console
 
 from ....core.browser import random_delay
-from ..config import EXPLORE_URL
-from ..models import Author, Comment, Note
+from ..config import EXPLORE_URL, SEARCH_API_URL, SEARCH_URL
+from ..models import Author, Comment, Note, NoteCard, SearchResult
 from .base import XHSBaseScraper
 
 console = Console()
@@ -225,7 +225,23 @@ class XHSApiScraper(XHSBaseScraper):
         """
         try:
             data = await page.evaluate("""(noteId) => {
-                const state = window.__INITIAL_STATE__;
+                // Try window global first, then parse from script tag
+                // (XHS deletes window.__INITIAL_STATE__ after initialization)
+                let state = window.__INITIAL_STATE__;
+                if (!state || !state.note) {
+                    const scripts = document.querySelectorAll('script');
+                    for (const s of scripts) {
+                        const t = s.textContent || '';
+                        const idx = t.indexOf('__INITIAL_STATE__=');
+                        if (idx === -1) continue;
+                        try {
+                            const jsonStr = t.substring(idx + '__INITIAL_STATE__='.length)
+                                .replace(/undefined/g, 'null');
+                            state = JSON.parse(jsonStr);
+                            break;
+                        } catch(e) { continue; }
+                    }
+                }
                 if (!state || !state.note || !state.note.noteDetailMap) return null;
 
                 const noteData = state.note.noteDetailMap[noteId];
@@ -440,6 +456,147 @@ class XHSApiScraper(XHSBaseScraper):
                 break
 
         return all_comments[:max_comments]
+
+    async def search_notes(
+        self,
+        keyword: str,
+        limit: int = 20,
+        sort: str = "general",
+        note_type: int = 0,
+    ) -> SearchResult:
+        """Search notes via response interception.
+
+        Navigates to search page and intercepts API responses. The browser's
+        JS SDK handles request signing (x-s, x-t, x-s-common) automatically.
+        Pagination is triggered by scrolling the page.
+
+        Args:
+            keyword: Search keyword.
+            limit: Maximum number of results.
+            sort: Sort order (general, time_descending, popularity_descending,
+                  comment_descending, collect_descending).
+            note_type: Note type filter (0=all, 1=video, 2=image).
+
+        Returns:
+            SearchResult with note cards.
+        """
+        from urllib.parse import quote
+
+        page = await self.browser.new_page()
+        notes: list[NoteCard] = []
+        seen_ids: set[str] = set()
+        api_results: list[dict] = []
+
+        async def on_response(response):
+            if '/api/sns/web/v1/search/notes' not in response.url:
+                return
+            if response.status != 200:
+                return
+            try:
+                body = await response.json()
+                if body.get("code") == 0 and body.get("data", {}).get("items"):
+                    api_results.append(body["data"])
+            except Exception:
+                pass
+
+        page.on("response", on_response)
+
+        try:
+            # Intercept search API requests to inject sort/note_type
+            if sort != "general" or note_type > 0:
+                async def modify_search_request(route):
+                    request = route.request
+                    if request.method == "POST" and request.post_data:
+                        try:
+                            body = json.loads(request.post_data)
+                            if sort != "general":
+                                body["sort"] = sort
+                            if note_type > 0:
+                                body["note_type"] = note_type
+                            await route.continue_(
+                                post_data=json.dumps(body),
+                            )
+                            return
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    await route.continue_()
+
+                await page.route("**/api/sns/web/v1/search/notes", modify_search_request)
+
+            search_url = f"{SEARCH_URL}?keyword={quote(keyword)}&source=web_search_result_notes"
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+            await random_delay(3.0, 4.0)
+
+            await self._close_login_modal(page)
+
+            # Process initial results
+            self._extract_notes_from_api(api_results, notes, seen_ids)
+
+            # Scroll to load more pages
+            max_scrolls = (limit + 19) // 20 + 2  # extra buffer
+            scroll_count = 0
+            no_new_count = 0
+
+            while len(notes) < limit and scroll_count < max_scrolls:
+                prev_count = len(notes)
+                api_results.clear()
+
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await random_delay(1.5, 2.5)
+
+                self._extract_notes_from_api(api_results, notes, seen_ids)
+                scroll_count += 1
+
+                if len(notes) == prev_count:
+                    no_new_count += 1
+                    if no_new_count >= 3:
+                        break  # No more results
+                else:
+                    no_new_count = 0
+
+        finally:
+            await page.close()
+
+        return SearchResult(
+            keyword=keyword,
+            total=len(notes),
+            notes=notes[:limit],
+        )
+
+    def _extract_notes_from_api(
+        self,
+        api_results: list[dict],
+        notes: list[NoteCard],
+        seen_ids: set[str],
+    ) -> None:
+        """Extract NoteCard objects from intercepted API responses."""
+        for data in api_results:
+            for item in data.get("items", []):
+                note_id = item.get("id", "")
+                if not note_id or note_id in seen_ids:
+                    continue
+                seen_ids.add(note_id)
+
+                card = item.get("note_card")
+                if not card:
+                    continue
+
+                user = card.get("user") or {}
+                interact = card.get("interact_info") or {}
+
+                notes.append(NoteCard(
+                    note_id=note_id,
+                    title=card.get("display_title", ""),
+                    cover_url=(card.get("cover") or {}).get("url_default", ""),
+                    author=Author(
+                        user_id=user.get("user_id", ""),
+                        nickname=user.get("nickname") or user.get("nick_name", ""),
+                        avatar=user.get("avatar", ""),
+                    ),
+                    likes=self._parse_count(interact.get("liked_count", "0")),
+                    xsec_token=item.get("xsec_token", ""),
+                    note_type=card.get("type", "normal"),
+                ))
 
     def _build_comment(self, data: dict) -> Optional[Comment]:
         """Build a Comment object from API response data."""

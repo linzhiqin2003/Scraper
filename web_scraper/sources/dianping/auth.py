@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from ...core.browser import create_browser, get_state_path
 from .config import (

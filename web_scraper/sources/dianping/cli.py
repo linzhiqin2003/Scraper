@@ -1,7 +1,6 @@
 """CLI commands for Dianping source."""
 import json
 import re
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -68,9 +67,8 @@ def import_cookies(
         console.print(f"[red]文件不存在：{src}[/red]")
         raise typer.Exit(1)
 
-    dest = get_cookies_path()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
+    from ...core.cookies import import_cookies as _import_cookies
+    dest = _import_cookies(src, SOURCE_NAME)
     console.print(f"[green]✓ Cookies 已导入：{dest}[/green]")
 
     try:

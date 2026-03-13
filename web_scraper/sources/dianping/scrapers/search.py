@@ -1,6 +1,6 @@
 """Search result scraper for Dianping."""
 from bs4 import BeautifulSoup
-from playwright.sync_api import TimeoutError as PlaywrightTimeout
+from patchright.sync_api import TimeoutError as PlaywrightTimeout
 
 from ....core.browser import create_browser, get_state_path
 from ..config import DEFAULT_CITY_ID, SOURCE_NAME, WWW_BASE_URL, build_search_url

@@ -295,7 +295,7 @@ class ProductScraper:
         Returns:
             ProductDetail with all intercepted data.
         """
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         sku_id = extract_sku_id(url_or_id)
         product_url = f"{BASE_URL}/{sku_id}.html"

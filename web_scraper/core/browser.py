@@ -1,14 +1,21 @@
-"""Unified browser management with Playwright."""
+"""Unified browser management with Patchright (Playwright fork)."""
 
 import asyncio
 import json
+import logging
+import os
 import random
+import shutil
+import subprocess
+import sys
 from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 from typing import Iterator, Optional, AsyncIterator
 
-from playwright.sync_api import sync_playwright, Browser, Page, Playwright
-from playwright.async_api import (
+logger = logging.getLogger(__name__)
+
+from patchright.sync_api import sync_playwright, Browser, Page, Playwright
+from patchright.async_api import (
     async_playwright,
     Browser as AsyncBrowser,
     BrowserContext as AsyncBrowserContext,
@@ -17,6 +24,86 @@ from playwright.async_api import (
 )
 
 from .user_agent import get_random_user_agent  # noqa: F401 — re-exported for backward compat
+
+
+# ==================== Xvfb (Virtual Display) Support ====================
+
+def _is_linux_headless_env() -> bool:
+    """Check if running on Linux without a display (e.g. server/CI)."""
+    if sys.platform != "linux":
+        return False
+    return not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
+
+
+def _has_xvfb() -> bool:
+    """Check if xvfb-run is available."""
+    return shutil.which("xvfb-run") is not None
+
+
+def needs_xvfb(headless: bool) -> bool:
+    """Determine if Xvfb is needed for the current environment.
+
+    Returns True when:
+    - Running on Linux without a display server
+    - headless=False is requested (needs a virtual display)
+    - xvfb-run is available
+    """
+    if headless:
+        return False  # headless mode doesn't need a display
+    return _is_linux_headless_env() and _has_xvfb()
+
+
+def relaunch_under_xvfb() -> None:
+    """Re-exec the current process under xvfb-run.
+
+    Replaces the current process with:
+        xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' python ...
+
+    This should be called early, before any Playwright browser is launched.
+    """
+    if os.environ.get("_XVFB_ACTIVE"):
+        return  # already under Xvfb, avoid infinite loop
+
+    logger.info("Linux without display detected, relaunching under Xvfb...")
+    os.environ["_XVFB_ACTIVE"] = "1"
+    os.execvp(
+        "xvfb-run",
+        [
+            "xvfb-run",
+            "--auto-servernum",
+            "--server-args=-screen 0 1280x720x24",
+            sys.executable,
+            *sys.argv,
+        ],
+    )
+
+
+def ensure_display(headless: bool) -> bool:
+    """Ensure a display is available for headed browser mode on Linux.
+
+    Call this before launching a browser with headless=False.
+
+    If on Linux without a display:
+    - If xvfb-run is available: re-execs the process under Xvfb (does not return)
+    - If xvfb-run is NOT available: returns True to signal caller should use headless
+
+    Returns:
+        True if caller should fall back to headless=True,
+        False if display is available (proceed normally).
+    """
+    if not needs_xvfb(headless):
+        return False  # display available or headless requested
+
+    if _has_xvfb():
+        relaunch_under_xvfb()
+        # Should not reach here (execvp replaces the process)
+        return False
+
+    logger.warning(
+        "Linux without display and xvfb-run not found. "
+        "Install with: sudo apt-get install xvfb"
+    )
+    return True  # caller should fall back to headless
 
 
 # Default data directory

@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Iterator, Optional
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
 
 from ...core.browser import get_state_path, STEALTH_SCRIPT
 from .config import SOURCE_NAME, BASE_URL, LOGIN_URL, Timeouts

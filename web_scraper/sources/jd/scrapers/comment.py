@@ -394,7 +394,7 @@ class CommentScraper:
         on_progress,
     ) -> CommentSummary:
         """Fallback: scrape using Playwright popup interception."""
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         product_url = f"{BASE_URL}/{sku_id}.html"
         all_comments: List[CommentInfo] = []

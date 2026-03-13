@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from playwright.sync_api import Page
+from patchright.sync_api import Page
 
 logger = logging.getLogger(__name__)
 

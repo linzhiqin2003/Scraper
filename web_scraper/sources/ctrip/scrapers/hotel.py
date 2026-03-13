@@ -79,7 +79,7 @@ class HotelSearchScraper:
         First page comes from __NEXT_DATA__ SSR; subsequent pages from
         fetchHotelList XHR triggered by scrolling.
         """
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
         from urllib.parse import quote
 
         city_info = CITY_MAP.get(city_name)
@@ -550,7 +550,7 @@ class HotelDetailScraper:
         checkin: str,
         checkout: str,
     ) -> "HotelDetail":
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
         from ..models import HotelDetail, HotelRoom
 
         url = (

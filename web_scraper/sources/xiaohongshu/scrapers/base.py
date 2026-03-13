@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
-from playwright.async_api import Page
+from patchright.async_api import Page
 from rich.console import Console
 
 from ....core.browser import BrowserManager, random_delay

@@ -25,8 +25,8 @@ poetry install
 # Or with pip
 pip install -e .
 
-# Install Playwright browsers (optional, for browser-based sources)
-playwright install chromium
+# Install Patchright browsers (optional, for browser-based sources)
+patchright install chromium
 ```
 
 ## Quick Start

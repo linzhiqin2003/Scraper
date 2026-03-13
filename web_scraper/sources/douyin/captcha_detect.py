@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from playwright.sync_api import Page
+from patchright.sync_api import Page
 
 from ...core.exceptions import CaptchaError
 from .config import (

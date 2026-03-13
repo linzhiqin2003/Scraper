@@ -5,46 +5,27 @@ from typing import Dict, Tuple
 
 import httpx
 
-from ...core.browser import get_data_dir
+from ...core.cookies import (
+    get_cookies_path as _get_cookies_path,
+    load_cookies_httpx,
+    load_cookies_playwright as _load_pw,
+)
 from .config import SOURCE_NAME, AUTH_COOKIES
 
 
 def get_cookies_path() -> Path:
     """Get default cookies.txt path for Ctrip."""
-    return get_data_dir(SOURCE_NAME) / "cookies.txt"
-
-
-def parse_netscape_cookies(cookies_file: Path) -> httpx.Cookies:
-    """
-    Parse Netscape cookies.txt format into httpx.Cookies.
-
-    Format: domain  flag  path  secure  expiration  name  value
-    Lines starting with # are comments.
-    """
-    cookies = httpx.Cookies()
-
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies 文件不存在: {cookies_file}")
-
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-            domain, _, path, _, _, name, value = parts[:7]
-            cookies.set(name, value, domain=domain, path=path)
-
-    return cookies
+    return _get_cookies_path(SOURCE_NAME)
 
 
 def load_cookies(cookies_path: Path | None = None) -> httpx.Cookies:
     """Load cookies, defaulting to ~/.web_scraper/ctrip/cookies.txt."""
-    if cookies_path is None:
-        cookies_path = get_cookies_path()
-    return parse_netscape_cookies(cookies_path)
+    return load_cookies_httpx(SOURCE_NAME, cookies_path)
+
+
+def load_playwright_cookies(cookies_path: Path | None = None) -> list[dict]:
+    """Parse Netscape cookies.txt into Playwright-compatible cookie dicts."""
+    return _load_pw(SOURCE_NAME, cookies_path)
 
 
 def get_cookie_dict(cookies: httpx.Cookies) -> Dict[str, str]:
@@ -54,8 +35,7 @@ def get_cookie_dict(cookies: httpx.Cookies) -> Dict[str, str]:
 
 def get_guid(cookies: httpx.Cookies) -> str:
     """Extract GUID from cookies for SOA2 request params."""
-    cookie_dict = get_cookie_dict(cookies)
-    return cookie_dict.get("GUID", "")
+    return get_cookie_dict(cookies).get("GUID", "")
 
 
 def validate_cookies(cookies: httpx.Cookies) -> bool:
@@ -72,57 +52,14 @@ def get_username_from_cookie(cookies: httpx.Cookies) -> str:
         return ""
     try:
         decoded = urllib.parse.unquote(raw)
-        # Format: UserName=袁科&Grade=10&...
         params = dict(p.split("=", 1) for p in decoded.split("&") if "=" in p)
         return params.get("UserName", "")
     except Exception:
         return ""
 
 
-def load_playwright_cookies(cookies_path: Path | None = None) -> list[dict]:
-    """Parse Netscape cookies.txt into Playwright-compatible cookie dicts.
-
-    Playwright format: {name, value, domain, path, expires, httpOnly, secure, sameSite}
-    """
-    path = cookies_path or get_cookies_path()
-    if not path or not path.exists():
-        return []
-
-    result: list[dict] = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-            domain, _, cookie_path, secure_str, expiry_str, name, value = parts[:7]
-            try:
-                expires = float(expiry_str) if expiry_str and expiry_str != "0" else -1
-            except ValueError:
-                expires = -1
-            # Playwright requires domain without leading dot for exact match,
-            # but .ctrip.com (with dot) works for subdomain matching
-            result.append({
-                "name": name,
-                "value": value,
-                "domain": domain,
-                "path": cookie_path,
-                "expires": expires,
-                "httpOnly": False,
-                "secure": secure_str.upper() == "TRUE",
-                "sameSite": "Lax",
-            })
-    return result
-
-
 def check_cookies_valid(cookies: httpx.Cookies) -> Tuple[bool, str]:
-    """
-    Verify cookies by calling getMemberSummaryInfo.
-
-    Returns (is_valid, message).
-    """
+    """Verify cookies by calling getMemberSummaryInfo."""
     from .config import MEMBER_SUMMARY_URL, DEFAULT_HEADERS, soa2_head
 
     guid = get_guid(cookies)

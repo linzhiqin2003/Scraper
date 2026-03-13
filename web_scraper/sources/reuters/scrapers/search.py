@@ -5,7 +5,7 @@ import time
 from typing import List, Optional
 from urllib.parse import urlencode
 
-from playwright.sync_api import Page, ElementHandle
+from patchright.sync_api import Page, ElementHandle
 
 from ....core.base import BaseScraper
 from ....core.exceptions import CaptchaError

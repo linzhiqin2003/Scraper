@@ -4,71 +4,38 @@ from typing import Tuple
 
 import httpx
 
-from ...core.browser import get_data_dir
+from ...core.cookies import (
+    get_cookies_path as _get_cookies_path,
+    load_cookies_httpx,
+)
 from .config import SOURCE_NAME, DEFAULT_HEADERS
 
 
 def get_cookies_path() -> Path:
     """Get default cookies.txt path for WSJ."""
-    return get_data_dir(SOURCE_NAME) / "cookies.txt"
-
-
-def parse_netscape_cookies(cookies_file: Path) -> httpx.Cookies:
-    """
-    Parse Netscape cookies.txt format into httpx.Cookies.
-
-    Format: domain  flag  path  secure  expiration  name  value
-    Lines starting with # are comments.
-    """
-    cookies = httpx.Cookies()
-
-    if not cookies_file.exists():
-        raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
-
-    with open(cookies_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-
-            parts = line.split("\t")
-            if len(parts) < 7:
-                continue
-
-            domain, _, path, secure, _, name, value = parts[:7]
-            cookies.set(name, value, domain=domain, path=path)
-
-    return cookies
+    return _get_cookies_path(SOURCE_NAME)
 
 
 def load_cookies(cookies_path: Path | None = None) -> httpx.Cookies:
     """Load cookies from file, defaulting to ~/.web_scraper/wsj/cookies.txt."""
-    if cookies_path is None:
-        cookies_path = get_cookies_path()
-    return parse_netscape_cookies(cookies_path)
+    return load_cookies_httpx(SOURCE_NAME, cookies_path)
 
 
 def validate_cookies(cookies: httpx.Cookies) -> bool:
     """Check if cookies contain necessary WSJ authentication tokens."""
     cookie_names = {cookie.name for cookie in cookies.jar}
 
-    # WSJ typically uses these cookies for authentication
-    required_patterns = ["DJSESSION", "wsjregion", "usr_bkt"]
-    found = sum(
-        1
-        for pattern in required_patterns
-        if any(pattern in name for name in cookie_names)
+    # connect.sid is the Express session cookie set by the new WSJ SSO flow
+    # DJSESSION/wsjregion/usr_bkt are legacy cookies that may or may not appear
+    auth_patterns = ["connect.sid", "DJSESSION", "wsjregion", "usr_bkt"]
+    return any(
+        any(pattern in name for name in cookie_names)
+        for pattern in auth_patterns
     )
-
-    return found >= 1
 
 
 async def check_cookies_valid_async(cookies: httpx.Cookies) -> Tuple[bool, str]:
-    """
-    Verify cookies work by checking WSJ homepage for login status (async).
-
-    Returns (is_valid, message).
-    """
+    """Verify cookies work by checking WSJ homepage for login status (async)."""
     test_url = "https://www.wsj.com/"
 
     async with httpx.AsyncClient(cookies=cookies, follow_redirects=True) as client:
@@ -97,11 +64,7 @@ async def check_cookies_valid_async(cookies: httpx.Cookies) -> Tuple[bool, str]:
 
 
 def check_cookies_valid_sync(cookies: httpx.Cookies) -> Tuple[bool, str]:
-    """
-    Verify cookies work by checking WSJ homepage for login status (sync).
-
-    Returns (is_valid, message).
-    """
+    """Verify cookies work by checking WSJ homepage for login status (sync)."""
     test_url = "https://www.wsj.com/"
 
     with httpx.Client(cookies=cookies, follow_redirects=True) as client:

@@ -72,7 +72,7 @@ class SignatureOracle:
 
     def _launch_browser(self):
         """Launch browser and create context. Separated for retry logic."""
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         if self._pw_cookies is None:
             self._pw_cookies = netscape_to_playwright(self.cookies_path)

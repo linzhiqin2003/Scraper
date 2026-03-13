@@ -7,12 +7,13 @@
 ## Tech Stack
 
 - Python 3.11+
-- Playwright (sync & async API)
+- Patchright (Playwright 反检测 fork，sync & async API) — **禁止直接使用 playwright，统一用 patchright**
 - Typer (CLI)
 - Rich (Terminal UI)
 - FastMCP (MCP Server)
 - Pydantic (Data Models)
 - httpx (HTTP client for WSJ, Scholar)
+- curl-cffi (HTTP client with TLS fingerprint impersonation)
 - BeautifulSoup4 + lxml (HTML parsing for Scholar)
 - feedparser (RSS parsing)
 
@@ -27,6 +28,8 @@ WebScraper/
 │   │
 │   ├── core/                   # Core modules (shared)
 │   │   ├── browser.py          # Browser management
+│   │   ├── http_client.py      # HTTP client with TLS fingerprint (curl-cffi)
+│   │   ├── cookies.py          # Unified Netscape cookie parsing/loading
 │   │   ├── base.py             # Sync scraper base class
 │   │   ├── async_base.py       # Async scraper base class
 │   │   ├── display.py          # Shared Rich UI display module
@@ -44,7 +47,8 @@ WebScraper/
 │   │   ├── wsj/                # WSJ (sync, httpx)
 │   │   ├── scholar/            # Google Scholar (sync, httpx+BeautifulSoup)
 │   │   ├── zhihu/              # Zhihu (httpx API + Playwright CDP)
-│   │   └── weibo/              # Weibo (async, Playwright)
+│   │   ├── weibo/              # Weibo (async, Playwright)
+│   │   └── x/                  # X/Twitter (curl-cffi + GraphQL API)
 │   │
 │   └── converters/             # Content converters
 │       └── markdown.py

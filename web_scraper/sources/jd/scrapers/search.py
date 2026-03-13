@@ -133,7 +133,7 @@ class SearchScraper:
             delay: Delay between pages (seconds).
             on_progress: Optional callback(page, total_pages, count).
         """
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
 
         sort_value = SORT_OPTIONS.get(sort, "")
         pw_cookies = netscape_to_playwright(self.cookies_path)

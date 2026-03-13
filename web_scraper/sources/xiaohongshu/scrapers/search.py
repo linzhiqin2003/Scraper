@@ -3,7 +3,7 @@
 from typing import Optional, List
 from urllib.parse import quote
 
-from playwright.async_api import Page, ElementHandle
+from patchright.async_api import Page, ElementHandle
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 

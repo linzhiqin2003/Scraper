@@ -48,11 +48,8 @@ def import_cookies(
         console.print(f"[red]Error:[/red] File not found: {source}")
         raise typer.Exit(1)
 
-    dest = get_cookies_path()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    import shutil
-    shutil.copy(source, dest)
+    from ...core.cookies import import_cookies as _import_cookies
+    dest = _import_cookies(source, SOURCE_NAME)
 
     # Validate imported cookies
     try:

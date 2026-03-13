@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple
 
-from playwright.async_api import Page
+from patchright.async_api import Page
 from rich.console import Console
 
 from ....core.browser import random_delay

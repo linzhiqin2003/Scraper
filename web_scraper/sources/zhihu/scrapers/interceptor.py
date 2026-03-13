@@ -11,7 +11,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from playwright.sync_api import Page, Response
+from patchright.sync_api import Page, Response
 
 from ..config import BASE_URL
 from ..models import ArticleDetail, SearchResult

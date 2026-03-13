@@ -126,5 +126,15 @@ def _load_sources():
     except ImportError:
         pass
 
+    try:
+        from . import x
+    except ImportError:
+        pass
+
+    try:
+        from . import wechat
+    except ImportError:
+        pass
+
 
 _load_sources()

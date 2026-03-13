@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Iterator, Optional
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
 from rich.console import Console
 
 from .config import SOURCE_NAME
@@ -159,7 +159,7 @@ def interactive_login(timeout_seconds: int = LOGIN_TIMEOUT_SECONDS) -> AuthStatu
     except Exception as e:
         msg = str(e)
         if "Executable doesn't exist" in msg:
-            msg = "Playwright 浏览器未安装，请运行：playwright install chromium"
+            msg = "Patchright 浏览器未安装，请运行：patchright install chromium"
         elif "Target page" in msg and "closed" in msg:
             msg = "浏览器意外关闭，请重试"
         return AuthStatus(

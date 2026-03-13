@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Iterator, List, Optional, Any
 
-from playwright.sync_api import Page, ElementHandle, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import Page, ElementHandle, TimeoutError as PlaywrightTimeout
 
 from .browser import create_browser, load_cookies_sync, get_state_path
 from .exceptions import NotLoggedInError, RateLimitedError

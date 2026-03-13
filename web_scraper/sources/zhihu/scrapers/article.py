@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout
 
 from ..anti_detect import BlockDetector, BlockStatus, BlockType
 from ..browser import open_zhihu_page, wait_for_unblock

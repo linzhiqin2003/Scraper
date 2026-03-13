@@ -3,7 +3,7 @@
 import time
 from typing import List, Optional
 
-from playwright.sync_api import Page, ElementHandle, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import Page, ElementHandle, TimeoutError as PlaywrightTimeout
 
 from ....core.base import BaseScraper
 from ..config import SOURCE_NAME, BASE_URL, SECTIONS, ScraperSelectors

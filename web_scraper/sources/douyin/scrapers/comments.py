@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from playwright.sync_api import Response, sync_playwright
+from patchright.sync_api import Response, sync_playwright
 
 from ....core.browser import get_state_path, STEALTH_SCRIPT
 from ..config import (
