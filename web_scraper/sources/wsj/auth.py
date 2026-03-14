@@ -200,6 +200,24 @@ def _dismiss_consent_dialog(page):
         pass
 
 
+def _wait_for_login_form(page, *, attempts: int = 3) -> bool:
+    """Ensure the SSO email form is visible, retrying via the native login URL."""
+    for attempt in range(attempts):
+        try:
+            page.wait_for_selector("#emailOrUsername-form-item", timeout=15000)
+            return True
+        except Exception:
+            logger.warning("Login form not visible (attempt %d/%d), retrying...", attempt + 1, attempts)
+            try:
+                page.goto(WSJ_LOGIN_URL, timeout=30000)
+                time.sleep(4)
+                _solve_slider_captcha(page, timeout=10.0, max_attempts=2)
+                _dismiss_consent_dialog(page)
+            except Exception:
+                pass
+    return False
+
+
 def _extract_and_save_cookies(ctx, page=None) -> Optional[Path]:
     """Extract cookies from browser context and save to Netscape file.
 
@@ -336,9 +354,7 @@ def login(
                 _solve_slider_captcha(page, timeout=8.0)
 
             # Wait for login form (should now be on sso.accounts.dowjones.com)
-            try:
-                page.wait_for_selector("#emailOrUsername-form-item", timeout=20000)
-            except Exception:
+            if not _wait_for_login_form(page):
                 body = page.evaluate("document.body.innerText.substring(0, 200)")
                 return False, f"Login form not found. Page: {body[:150]}"
 
@@ -371,10 +387,10 @@ def login(
                     time.sleep(3)
                     _solve_slider_captcha(page)
                     time.sleep(2)
-                    try:
-                        page.wait_for_selector("#emailOrUsername-form-item", timeout=10000)
-                    except Exception:
-                        pass
+                try:
+                    _wait_for_login_form(page, attempts=1)
+                except Exception:
+                    pass
                     continue
                 break
 
@@ -513,7 +529,8 @@ def login_interactive(
             # Pre-fill email if provided
             if email:
                 try:
-                    page.wait_for_selector("#emailOrUsername-form-item", timeout=10000)
+                    if not _wait_for_login_form(page, attempts=2):
+                        raise RuntimeError("login form unavailable")
                     page.locator("#emailOrUsername-form-item").fill(email)
                 except Exception:
                     pass
