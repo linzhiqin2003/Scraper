@@ -53,8 +53,8 @@ scraper reuters fetch "https://www.reuters.com/world/article-url/"
 ### WSJ (Wall Street Journal)
 
 ```bash
-# Import cookies from browser
-scraper wsj import-cookies ~/Downloads/cookies.txt
+# Login with stored credentials (preferred)
+scraper wsj login
 
 # Check cookies validity
 scraper wsj status
@@ -71,6 +71,8 @@ scraper wsj search "Nvidia" --sort newest --date week --sources articles
 # Fetch full article
 scraper wsj fetch "https://www.wsj.com/articles/..."
 ```
+
+Stored credentials path: `~/.openclaw/credentials/wsj/account.json`
 
 ### Google Scholar
 

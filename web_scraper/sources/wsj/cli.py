@@ -21,6 +21,7 @@ from .cookies import (
     check_cookies_valid_sync,
     get_cookies_path,
 )
+from .credentials import credentials_hint, resolve_credentials
 from .scrapers import ArticleScraper, SearchScraper, FeedScraper
 
 app = typer.Typer(
@@ -37,23 +38,21 @@ app = typer.Typer(
 
 @app.command()
 def login(
-    email: Optional[str] = typer.Option(None, "--email", "-e", help="WSJ account email (or WSJ_EMAIL env var)"),
-    password: Optional[str] = typer.Option(None, "--password", "-p", help="WSJ account password (or WSJ_PASSWORD env var)"),
+    email: Optional[str] = typer.Option(None, "--email", "-e", help="WSJ account email override", hidden=True),
+    password: Optional[str] = typer.Option(None, "--password", "-p", help="WSJ account password override", hidden=True),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Manual login in browser"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser headlessly (default: headless)"),
 ) -> None:
     """Login to WSJ via browser automation (Patchright).
 
-    Automated mode (default): reads email/password from env vars WSJ_EMAIL and
-    WSJ_PASSWORD, or pass via -e/-p flags. Auto-solves CAPTCHA in headless mode.
+    Automated mode (default): reads credentials from stored config first-class,
+    then env vars or explicit overrides. Auto-solves CAPTCHA in headless mode.
     Interactive mode (-i): opens browser for you to login manually.
 
     Examples:
-      scraper wsj login                            # uses env vars, headless
-      scraper wsj login -e user@example.com -p pw  # explicit credentials
-      scraper wsj login -i                         # manual browser login
+      scraper wsj login      # uses stored credentials, headless
+      scraper wsj login -i   # manual browser login
     """
-    import os
     from .auth import login as auto_login, login_interactive
 
     if interactive:
@@ -67,10 +66,14 @@ def login(
             progress.add_task("Waiting for login...", total=None)
             ok, msg = login_interactive(email=email, headless=headless)
     else:
-        if not email:
-            email = os.environ.get("WSJ_EMAIL") or typer.prompt("Email")
-        if not password:
-            password = os.environ.get("WSJ_PASSWORD") or typer.prompt("Password", hide_input=True)
+        email, password, stored_path = resolve_credentials(email, password)
+        if not email or not password:
+            console.print("[red]Error:[/red] WSJ credentials not configured")
+            console.print(f"[dim]{credentials_hint()}[/dim]")
+            raise typer.Exit(1)
+
+        if stored_path:
+            console.print(f"[dim]Using stored credentials from {stored_path}[/dim]")
 
         with Progress(
             SpinnerColumn(),
@@ -117,7 +120,8 @@ def status(
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         console.print("\n[yellow]To login:[/yellow]")
-        console.print("  scraper wsj login -e <email> -p <password>")
+        console.print("  scraper wsj login")
+        console.print(f"\n[dim]{credentials_hint()}[/dim]")
         console.print("\n[yellow]Or import cookies manually:[/yellow]")
         console.print(f"  scraper wsj import-cookies <cookies.txt>")
         raise typer.Exit(1)
@@ -140,7 +144,7 @@ def status(
         console.print(f"[green]✓[/green] {message}")
     else:
         console.print(f"[red]✗[/red] {message}")
-        console.print("\n[dim]Try re-login: scraper wsj login -e <email> -p <password>[/dim]")
+        console.print("\n[dim]Try re-login: scraper wsj login[/dim]")
         raise typer.Exit(1)
 
 
@@ -248,7 +252,7 @@ def browse(
         article_scraper = ArticleScraper(cookies_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        console.print(f"Run 'scraper {SOURCE_NAME} import-cookies <path>' first")
+        console.print(f"Run 'scraper {SOURCE_NAME} login' first")
         raise typer.Exit(1)
 
     storage = JSONStorage(source=SOURCE_NAME)
@@ -346,7 +350,7 @@ def search(
         search_scraper = SearchScraper(cookies_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        console.print(f"Run 'scraper {SOURCE_NAME} import-cookies <path>' first")
+        console.print(f"Run 'scraper {SOURCE_NAME} login' first")
         raise typer.Exit(1)
 
     # Parse sources
@@ -475,7 +479,7 @@ def fetch(
         scraper = ArticleScraper(cookies_file)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        console.print(f"Run 'scraper {SOURCE_NAME} import-cookies <path>' first")
+        console.print(f"Run 'scraper {SOURCE_NAME} login' first")
         raise typer.Exit(1)
 
     with Progress(
