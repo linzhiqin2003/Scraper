@@ -32,7 +32,7 @@ def _find_captcha_frame(page):
     return None
 
 
-def _solve_slider_captcha(page, *, timeout: float = 15.0, max_attempts: int = 3) -> bool:
+def _solve_slider_captcha(page, *, timeout: float = 25.0, max_attempts: int = 4) -> bool:
     """Detect and solve DataDome slider CAPTCHA if present.
 
     Returns True if captcha was solved or not present, False on failure.
@@ -74,6 +74,14 @@ def _solve_slider_captcha(page, *, timeout: float = 15.0, max_attempts: int = 3)
 
         if not slider_info:
             logger.warning("Slider elements not found within timeout")
+            captcha_frame = _find_captcha_frame(page)
+            if captcha_frame:
+                try:
+                    captcha_frame.click("#captcha__reload__button", timeout=3000)
+                    time.sleep(3)
+                    continue
+                except Exception:
+                    pass
             return False
 
         # Get iframe position in main page coordinates
@@ -329,7 +337,7 @@ def login(
             page.goto("https://www.wsj.com", timeout=30000)
             time.sleep(4)
 
-            if not _solve_slider_captcha(page):
+            if not _solve_slider_captcha(page, timeout=20.0, max_attempts=4):
                 return False, "Failed to solve CAPTCHA on wsj.com. Try: scraper wsj login -i"
 
             time.sleep(2)
@@ -345,7 +353,7 @@ def login(
             time.sleep(5)
 
             # Step 2: Handle CAPTCHA on SSO page (DataDome may block)
-            if not _solve_slider_captcha(page):
+            if not _solve_slider_captcha(page, timeout=20.0, max_attempts=4):
                 return False, "Failed to solve CAPTCHA on SSO. Try: scraper wsj login -i"
 
             time.sleep(2)
