@@ -302,12 +302,13 @@ def search(
                 summary=f"Found {len(result.notes)} results",
             )
 
-            # Print fetch commands with full xsec_token (table truncates URLs)
+            # Print fetch commands with full URL (table truncates them)
             console.print()
-            console.print("[dim]Fetch commands (with xsec_token):[/dim]")
+            console.print("[dim]Fetch commands:[/dim]")
             for note in result.notes[:10]:
                 if note.xsec_token:
-                    console.print(f"  scraper xhs fetch {note.note_id} -t '{note.xsec_token}'")
+                    url = f"https://www.xiaohongshu.com/explore/{note.note_id}?xsec_token={note.xsec_token}"
+                    console.print(f"  scraper xhs fetch '{url}'")
                 else:
                     console.print(f"  scraper xhs fetch {note.note_id}")
 
