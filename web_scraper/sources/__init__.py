@@ -136,5 +136,10 @@ def _load_sources():
     except ImportError:
         pass
 
+    try:
+        from . import yahoo
+    except ImportError:
+        pass
+
 
 _load_sources()
