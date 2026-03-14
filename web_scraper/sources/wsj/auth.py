@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ...core.browser import ensure_display
 from ...core.cookies import get_cookies_path
 from .config import SOURCE_NAME
 
@@ -279,12 +278,6 @@ def login(
     except ImportError:
         return False, "patchright not installed. Run: poetry add patchright"
 
-    # On Linux without display: relaunch under Xvfb for headed mode,
-    # or fall back to headless if Xvfb is unavailable.
-    if not headless and ensure_display(headless=False):
-        logger.warning("Falling back to headless mode (no display, no Xvfb)")
-        headless = True
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         ctx = browser.new_context()
@@ -474,9 +467,6 @@ def login_interactive(
         from patchright.sync_api import sync_playwright
     except ImportError:
         return False, "patchright not installed. Run: poetry add patchright"
-
-    # On Linux without display: relaunch under Xvfb
-    ensure_display(headless=False)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)  # Always visible

@@ -163,7 +163,7 @@ def browse(
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of notes"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Browse notes from Xiaohongshu homepage by category."""
     _require_login()
@@ -202,7 +202,7 @@ def browse(
                 summary=f"Found {len(result.notes)} notes",
             )
 
-            if not no_save:
+            if save:
                 import os
                 os.makedirs(output, exist_ok=True)
                 storage = JSONStorage(SOURCE_NAME, output_dir=None)
@@ -227,7 +227,7 @@ def search(
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Search for notes on Xiaohongshu.
 
@@ -302,7 +302,7 @@ def search(
                 summary=f"Found {len(result.notes)} results",
             )
 
-            if not no_save:
+            if save:
                 storage = JSONStorage(SOURCE_NAME, output_dir=None)
                 storage.output_dir.mkdir(parents=True, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -404,7 +404,7 @@ def fetch(
     output: Path = typer.Option(Path("./xhs_output"), "--output", "-o", help="Output directory"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     delay: float = typer.Option(2.0, "--delay", help="Delay between requests (seconds)"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save JSON results"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Fetch one or more notes by URL or ID.
 
@@ -613,7 +613,7 @@ def fetch(
                         console.print(f"  [green]{note.note_id}: {downloaded}/{len(note.images)} images → {note_dir}[/green]")
 
         # ── Save ─────────────────────────────────────────────────────────
-        if not no_save and results:
+        if save and results:
             output.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             if len(results) == 1:

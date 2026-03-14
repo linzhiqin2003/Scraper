@@ -143,7 +143,7 @@ def search(
     keyword: Optional[str] = typer.Option(None, "--keyword", "-k", help="Filter articles by title keyword"),
     full: bool = typer.Option(False, "--full", "-f", help="Fetch full article content via URL"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to JSON file"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't auto-save results"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Search for a public account and fetch its articles.
 
@@ -322,7 +322,7 @@ def search(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         display_saved(output)
-    elif not no_save:
+    elif save:
         storage = JSONStorage(source=SOURCE_NAME)
         slug = _safe_filename(target.nickname)
         path = storage.save(data, f"account_{slug}.json", description="articles")
@@ -338,7 +338,7 @@ def search(
 def fetch(
     url: str = typer.Argument(..., help="WeChat article URL (mp.weixin.qq.com/s/...)"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to JSON file"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't auto-save results"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     show_content: bool = typer.Option(False, "--content", "-c", help="Show full content"),
 ) -> None:
     """Fetch a WeChat article by URL.
@@ -387,7 +387,7 @@ def fetch(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         display_saved(output)
-    elif not no_save:
+    elif save:
         storage = JSONStorage(source=SOURCE_NAME)
         slug = _safe_filename(article.title)
         data = article.model_dump(mode="json")

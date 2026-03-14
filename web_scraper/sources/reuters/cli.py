@@ -350,7 +350,7 @@ def search(
     count_only: bool = typer.Option(False, "--count", "-c", help="Only show total result count"),
     shallow: bool = typer.Option(False, "--shallow", help="Only show search results without fetching details"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Search Reuters for articles by keyword.
 
@@ -467,7 +467,7 @@ def search(
     # Fetch article details
     console.print(f"\n[cyan]Fetching article details...[/]")
 
-    save_to_files = output and not no_save
+    save_to_files = output and save
     if save_to_files:
         os.makedirs(output, exist_ok=True)
 
@@ -597,7 +597,7 @@ def browse(
     headless: bool = typer.Option(True, "--headless", help="Run browser in headless mode"),
     shallow: bool = typer.Option(False, "--shallow", help="Only show article list"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't save to files"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Browse articles from a Reuters section.
 
@@ -695,7 +695,7 @@ def browse(
 
     console.print(f"\n[cyan]Fetching article details...[/]")
 
-    save_to_files = output and not no_save
+    save_to_files = output and save
     if save_to_files:
         os.makedirs(output, exist_ok=True)
 

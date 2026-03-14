@@ -293,7 +293,7 @@ def fetch(
         None, "--cookies", "-c", help="Path to cookies.txt file"
     ),
     no_browser: bool = typer.Option(False, "--no-browser", help="Disable Playwright browser fallback"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save to data directory"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file path"
     ),

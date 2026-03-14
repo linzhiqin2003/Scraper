@@ -229,7 +229,7 @@ def status() -> None:
 
     try:
         with console.status("[cyan]Checking Zhihu login status...[/]"):
-            result = check_saved_session(headless=False)
+            result = check_saved_session(headless=True)
 
         _show_auth(result)
 
@@ -402,7 +402,7 @@ search_types = app.command("search-types", rich_help_panel="Aliases")(options)
 def fetch(
     url: str = typer.Argument(..., help="Article or answer URL"),
     cdp_port: int = typer.Option(DEFAULT_CDP_PORT, "--cdp-port", help="Chrome CDP port"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save to data directory"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path"),
     strategy: str = typer.Option(STRATEGY_AUTO, "--strategy", "-s", help="Extraction strategy: auto, pure_api, api, intercept, dom"),
     proxy_api: Optional[str] = typer.Option(None, "--proxy-api", help="Proxy pool API URL"),

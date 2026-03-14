@@ -75,7 +75,7 @@ def search(
     limit: int = typer.Option(0, "--limit", "-n", help="每个关键词最多结果数 (0=不限)"),
     download: bool = typer.Option(False, "--download", help="下载 GIF 文件"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="输出文件路径"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """搜索爱给网 GIF 素材。
 
@@ -91,7 +91,7 @@ def search(
     storage = JSONStorage(source=SOURCE_NAME)
 
     try:
-        _search_keywords(scraper, storage, keyword, max_pages, limit, download, output, no_save)
+        _search_keywords(scraper, storage, keyword, max_pages, limit, download, output, save)
     finally:
         scraper.close()
 
@@ -104,7 +104,7 @@ def _search_keywords(
     limit: int,
     download: bool,
     output: Optional[str],
-    no_save: bool,
+    save: bool,
 ) -> None:
     for kw in keyword:
         console.print(f"\n[bold]搜索关键词: {kw}[/bold] (最多 {max_pages or '全部'} 页)")
@@ -156,7 +156,7 @@ def _search_keywords(
         )
 
         # Save
-        if not no_save:
+        if save:
             if output:
                 import json
                 data = [it.model_dump(mode="json") for it in items]

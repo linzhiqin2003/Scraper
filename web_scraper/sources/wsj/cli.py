@@ -475,7 +475,7 @@ def fetch(
     cookies_file: Optional[Path] = typer.Option(
         None, "--cookies", "-c", help="Path to cookies.txt file"
     ),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save to data directory"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file path"
     ),

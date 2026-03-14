@@ -161,7 +161,7 @@ def search(
         help="Search type: Top, Latest, People, Photos, Videos",
     ),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to JSON file"),
-    no_save: bool = typer.Option(False, "--no-save", help="Don't auto-save results"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     # Advanced search options
     exact_phrase: Optional[str] = typer.Option(None, "--exact", help="Exact phrase match"),
     any_words: Optional[str] = typer.Option(None, "--any", help="Any of these words (OR)"),
@@ -311,7 +311,7 @@ def search(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         display_saved(output)
-    elif not no_save:
+    elif save:
         storage = JSONStorage(source=SOURCE_NAME)
         slug = _safe_filename(query)
         data = [t.model_dump(mode="json") for t in all_tweets]

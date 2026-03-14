@@ -146,7 +146,7 @@ def search(
     delay: float = typer.Option(1.5, "--delay", "-d", help="Delay between pages (seconds)"),
     cookies_file: Optional[Path] = typer.Option(None, "--cookies", "-c", help="Path to cookies.txt"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Save to JSON file"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save to data directory"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """Search JD products by keyword."""
     from .scrapers import SearchScraper
@@ -236,7 +236,7 @@ def fetch(
     cookies_file: Optional[Path] = typer.Option(
         None, "--cookies", "-c", help="Path to cookies.txt file"
     ),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save to data directory"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file path"
     ),

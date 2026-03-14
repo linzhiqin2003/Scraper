@@ -226,7 +226,7 @@ def fetch(
     with_replies: bool = typer.Option(False, "--with-replies", help="Also fetch replies for each comment"),
     reply_limit: int = typer.Option(3, "--reply-limit", min=1, help="Max replies per comment"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch comments from a Douyin video by URL or video ID.
@@ -471,7 +471,7 @@ def _format_duration(ms: Optional[int]) -> str:
 def profile(
     url: str = typer.Argument(..., help="Douyin user profile URL"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch a Douyin user's profile information.
@@ -553,7 +553,7 @@ def videos(
     url: str = typer.Argument(..., help="Douyin user profile URL"),
     limit: int = typer.Option(18, "--limit", "-n", min=1, help="Maximum number of videos to fetch"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch a Douyin user's posted video list.

@@ -283,7 +283,7 @@ def search(
     limit: Optional[int] = typer.Option(20, "--limit", "-n", min=1, help="Maximum number of results"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run fallback browser in headless mode"),
     no_fallback: bool = typer.Option(False, "--no-fallback", help="Disable Playwright fallback"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Search Weibo posts with HTTP-first strategy and Playwright fallback."""
@@ -330,7 +330,7 @@ def hot(
     limit: Optional[int] = typer.Option(50, "--limit", "-n", min=1, help="Maximum number of hot topics"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run fallback browser in headless mode"),
     no_fallback: bool = typer.Option(False, "--no-fallback", help="Disable Playwright fallback"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch Weibo hot-search topics."""
@@ -380,7 +380,7 @@ def fetch(
     comment_count: int = typer.Option(20, "--comment-count", min=1, max=50, help="Comments per page"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run fallback browser in headless mode"),
     no_fallback: bool = typer.Option(False, "--no-fallback", help="Disable Playwright fallback"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save result to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch a single Weibo post detail by URL or MID."""
@@ -542,7 +542,7 @@ def profile(
     include_ads: bool = typer.Option(False, "--include-ads", help="Include ad posts"),
     parallel: Optional[int] = typer.Option(None, "--parallel", min=1, max=10, help="Enable parallel mode with N concurrent yearly chunks (e.g. --parallel 2; use 1 if getting 418 blocks)"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output JSON file path"),
 ) -> None:
     """Fetch posts from a Weibo user's profile by UID.

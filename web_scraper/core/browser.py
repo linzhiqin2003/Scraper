@@ -189,6 +189,11 @@ def create_browser(
     Yields:
         Playwright Page instance.
     """
+    # On Linux without display, ensure Xvfb is available for headed mode
+    if not headless and ensure_display(headless=False):
+        logger.warning("Falling back to headless mode (no display available)")
+        headless = True
+
     with sync_playwright() as p:
         launch_args = [
             "--disable-gpu",
@@ -376,6 +381,11 @@ class BrowserManager:
 
     async def start(self) -> None:
         """Start browser instance."""
+        # On Linux without display, ensure Xvfb is available for headed mode
+        if not self.headless and ensure_display(headless=False):
+            logger.warning("Falling back to headless mode (no display available)")
+            self.headless = True
+
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         self._playwright = await async_playwright().start()

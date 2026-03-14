@@ -257,7 +257,7 @@ def search(
     keyword: str = typer.Option("", "--keyword", "-k", help="关键词搜索，如 地铁旁、亲子"),
     brand: str = typer.Option("", "--brand", "-b",
                               help="品牌筛选，多个用逗号分隔，如 亚朵,全季。运行 options 查看支持的品牌"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果文件"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """搜索酒店（Playwright 拦截 XHR，无需登录）。"""
     from .scrapers import HotelSearchScraper
@@ -289,7 +289,7 @@ def search(
 
     _display_hotels(result.hotels, title=f"{city} 酒店搜索结果（{checkin} → {checkout}）")
 
-    if not no_save:
+    if save:
         _save_hotels(result.hotels, f"hotel_search_{city}_{checkin}")
 
 
@@ -304,7 +304,7 @@ def fetch(
     checkin: str = typer.Option(..., "--checkin", "-i", help="入住日期 YYYY-MM-DD"),
     checkout: str = typer.Option(..., "--checkout", "-o", help="退房日期 YYYY-MM-DD"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="是否无头浏览器"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果文件"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """获取酒店详情页信息（Playwright DOM 解析）。"""
     from .config import CITY_MAP
@@ -325,7 +325,7 @@ def fetch(
         raise typer.Exit(1)
 
     _display_hotel_detail(detail)
-    if not no_save:
+    if save:
         _save_hotel_detail(detail)
 
 
@@ -338,7 +338,7 @@ def recommend(
     city: str = typer.Argument(..., help="城市名，如 上海、北京"),
     checkin: str = typer.Option(..., "--checkin", "-i", help="入住日期 YYYY-MM-DD"),
     checkout: str = typer.Option(..., "--checkout", "-o", help="退房日期 YYYY-MM-DD"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果文件"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """获取酒店广告推荐（API 直连，无需 Playwright）。"""
     from .config import CITY_MAP
@@ -366,7 +366,7 @@ def recommend(
         return
 
     _display_hotels(hotels, title=f"{city} 推荐酒店（{checkin} → {checkout}）")
-    if not no_save:
+    if save:
         _save_hotels(hotels, f"hotel_recommend_{city}_{checkin}")
 
 
@@ -514,7 +514,7 @@ def flight_search(
     direct_only: bool = typer.Option(False, "--direct-only", help="只保留直飞航班"),
     no_calendar: bool = typer.Option(False, "--no-calendar", help="不查询低价日历"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="是否无头浏览器运行"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果文件"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """搜索机票结果页并解析航班列表。"""
     from .scrapers import FlightSearchScraper
@@ -552,7 +552,7 @@ def flight_search(
     )
     console.print(f"[dim]结果页：{result.search_url}[/dim]")
 
-    if not no_save:
+    if save:
         _save_flights(
             result.model_dump(),
             f"flight_search_{result.departure_code}_{result.arrival_code}_{result.departure_date}",
@@ -565,7 +565,7 @@ def flight_calendar(
     arrival: str = typer.Argument(..., help="到达城市或三字码，如 北京 / BJS"),
     date: str = typer.Option(..., "--date", "-d", help="基准日期 YYYY-MM-DD"),
     days: int = typer.Option(30, "--days", help="展示未来多少天，默认 30"),
-    no_save: bool = typer.Option(False, "--no-save", help="不保存结果文件"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
 ) -> None:
     """查询机票低价日历。"""
     from .config import normalize_flight_city
@@ -590,7 +590,7 @@ def flight_calendar(
 
     shown_prices = prices[:days] if days > 0 else prices
     _display_flight_calendar(shown_prices, title=f"{dep_name} → {arr_name} 低价日历")
-    if not no_save:
+    if save:
         _save_flights(
             {
                 "departure_city": dep_name,
