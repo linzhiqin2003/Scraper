@@ -302,24 +302,14 @@ def ensure_cookies(
     return login(email, password, headless=headless)
 
 
-def login(
+def _login_once(
     email: str,
     password: str,
     *,
     headless: bool = False,
     timeout: float = 60.0,
 ) -> tuple[bool, str]:
-    """Automated WSJ login via Patchright.
-
-    Args:
-        email: WSJ account email.
-        password: WSJ account password.
-        headless: Run browser headlessly (default False for CAPTCHA visibility).
-        timeout: Max seconds to wait for login completion.
-
-    Returns:
-        (success, message) tuple.
-    """
+    """Run a single WSJ login attempt."""
     try:
         from patchright.sync_api import sync_playwright
     except ImportError:
@@ -492,6 +482,39 @@ def login(
             return False, f"Login error: {e}"
         finally:
             browser.close()
+
+
+def login(
+    email: str,
+    password: str,
+    *,
+    headless: bool = False,
+    timeout: float = 60.0,
+    attempts: int = 3,
+) -> tuple[bool, str]:
+    """Automated WSJ login via Patchright.
+
+    Args:
+        email: WSJ account email.
+        password: WSJ account password.
+        headless: Run browser headlessly (default False for CAPTCHA visibility).
+        timeout: Max seconds to wait for login completion.
+        attempts: Number of full login attempts before giving up.
+
+    Returns:
+        (success, message) tuple.
+    """
+    last_message = "WSJ login failed"
+    for attempt in range(1, attempts + 1):
+        ok, message = _login_once(email, password, headless=headless, timeout=timeout)
+        if ok:
+            return ok, message
+        last_message = message
+        if attempt < attempts:
+            logger.warning("WSJ login attempt %d/%d failed: %s", attempt, attempts, message)
+            time.sleep(3)
+
+    return False, last_message
 
 
 def login_interactive(
