@@ -1,9 +1,15 @@
-"""Search scraper for Xiaohongshu."""
+"""Search scraper for Xiaohongshu.
 
+Uses response interception to capture search API results directly,
+avoiding DOM parsing race conditions (navigation destroying context).
+"""
+
+import asyncio
+import json
 from typing import Optional, List
 from urllib.parse import quote
 
-from patchright.async_api import Page, ElementHandle
+from patchright.async_api import Page, Response
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -14,9 +20,17 @@ from .base import XHSBaseScraper
 
 console = Console()
 
+# Search API note_type mapping (from API exploration)
+API_NOTE_TYPE = {
+    "all": 0,
+    "notes": 0,
+    "video": 1,
+    "image": 2,
+}
+
 
 class SearchScraper(XHSBaseScraper):
-    """Scraper for Xiaohongshu search results."""
+    """Scraper for Xiaohongshu search results using API interception."""
 
     async def scrape(
         self,
@@ -25,6 +39,9 @@ class SearchScraper(XHSBaseScraper):
         limit: int = 20,
     ) -> SearchResult:
         """Scrape search results for a keyword.
+
+        Primary: intercept search/notes API response (fast, reliable).
+        Fallback: DOM parsing (legacy, for edge cases).
 
         Args:
             keyword: Search keyword.
@@ -37,64 +54,172 @@ class SearchScraper(XHSBaseScraper):
         page = await self.browser.new_page()
 
         try:
-            type_param = SEARCH_TYPES.get(search_type, "51")
-            encoded_keyword = quote(keyword)
-            url = f"{SEARCH_URL}?keyword={encoded_keyword}&source=web_search_result_notes&type={type_param}"
-
             console.print(f"[blue]Searching for: {keyword} (type: {search_type})[/blue]")
-            await page.goto(url, wait_until="commit", timeout=60000)
-            await random_delay(2.0, 3.0)
+            notes = await self._search_via_api(page, keyword, search_type, limit)
 
-            await self._close_login_modal(page)
-
-            login_required = await self._check_login_required(page)
-            if login_required:
-                console.print("[yellow]Login required for search. Please run 'scraper xhs login' first.[/yellow]")
-                return SearchResult(keyword=keyword, total=0, notes=[])
-
-            if search_type != "all":
-                await self._select_search_type(page, search_type)
-
-            notes = await self._collect_results(page, limit)
+            if not notes:
+                console.print("[dim]API interception returned no results, trying DOM fallback...[/dim]")
+                notes = await self._search_via_dom(page, keyword, search_type, limit)
 
             console.print(f"[green]Found {len(notes)} results for '{keyword}'[/green]")
-
             return SearchResult(keyword=keyword, total=len(notes), notes=notes)
 
         finally:
             await page.close()
 
-    async def _check_login_required(self, page: Page) -> bool:
-        """Check if login is required to view search results."""
+    # ── API interception approach ──────────────────────────────────────
+
+    async def _search_via_api(
+        self, page: Page, keyword: str, search_type: str, limit: int
+    ) -> List[NoteCard]:
+        """Search by intercepting the search/notes API response."""
+        captured: List[dict] = []
+        capture_done = asyncio.Event()
+
+        async def on_response(response: Response) -> None:
+            if "api/sns/web/v1/search/notes" not in response.url:
+                return
+            if response.request.method != "POST":
+                return
+            try:
+                body = await response.json()
+                if body.get("success") and body.get("data", {}).get("items"):
+                    captured.append(body["data"])
+                    capture_done.set()
+            except Exception:
+                pass
+
+        page.on("response", on_response)
+
+        # Navigate to search page — the page's JS will make the API call
+        # with proper signing headers automatically
+        type_param = SEARCH_TYPES.get(search_type, "51")
+        encoded_keyword = quote(keyword)
+        url = f"{SEARCH_URL}?keyword={encoded_keyword}&source=web_search_result_notes&type={type_param}"
+
         try:
-            login_prompt = await page.query_selector('text=登录后查看搜索结果')
-            return login_prompt is not None
+            await page.goto(url, wait_until="commit", timeout=60000)
         except Exception:
-            return False
+            pass  # Timeout is ok — we just need the API call to fire
 
-    async def _select_search_type(self, page: Page, search_type: str) -> None:
-        """Select a search type filter."""
-        type_labels = {
-            "all": "全部",
-            "notes": "全部",
-            "video": "视频",
-            "image": "图文",
-            "user": "用户",
-        }
-
-        label = type_labels.get(search_type, "全部")
-
+        # Wait for first API response (or timeout)
         try:
-            tab = await page.query_selector(f'[cursor=pointer]:has-text("{label}")')
-            if tab:
-                await tab.click()
-                await random_delay(1.0, 2.0)
-                console.print(f"[dim]Selected filter: {label}[/dim]")
-        except Exception as e:
-            console.print(f"[yellow]Could not select filter {label}: {e}[/yellow]")
+            await asyncio.wait_for(capture_done.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            page.remove_listener("response", on_response)
+            return []
 
-    async def _collect_results(self, page: Page, limit: int) -> List[NoteCard]:
-        """Collect search results from the page."""
+        # Accept cookie banner to unblock further interactions
+        await self._dismiss_cookie_banner(page)
+
+        # Collect initial results
+        all_notes = []
+        seen_ids: set = set()
+
+        for data in captured:
+            notes = self._parse_api_items(data.get("items", []))
+            for note in notes:
+                if note.note_id not in seen_ids:
+                    all_notes.append(note)
+                    seen_ids.add(note.note_id)
+
+        # If we need more results, scroll to trigger pagination
+        if len(all_notes) < limit:
+            has_more = captured[-1].get("has_more", False) if captured else False
+            page_num = len(captured) + 1  # Already got page 1 (and maybe 2)
+
+            while has_more and len(all_notes) < limit:
+                capture_done.clear()
+                captured.clear()
+
+                # Scroll to trigger next page load
+                await self._scroll_page(page)
+                await random_delay(1.0, 2.0)
+
+                try:
+                    await asyncio.wait_for(capture_done.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    break
+
+                for data in captured:
+                    notes = self._parse_api_items(data.get("items", []))
+                    for note in notes:
+                        if note.note_id not in seen_ids:
+                            all_notes.append(note)
+                            seen_ids.add(note.note_id)
+                    has_more = data.get("has_more", False)
+
+                page_num += 1
+
+        page.remove_listener("response", on_response)
+        return all_notes[:limit]
+
+    def _parse_api_items(self, items: list) -> List[NoteCard]:
+        """Parse note cards from search API response items."""
+        notes = []
+        for item in items:
+            try:
+                if item.get("model_type") != "note":
+                    continue
+
+                card = item.get("note_card", {})
+                if not card:
+                    continue
+
+                note_id = item.get("id", "")
+                xsec_token = item.get("xsec_token", "")
+                title = card.get("display_title", "")
+                note_type = card.get("type", "normal")
+
+                # Author
+                user = card.get("user", {})
+                author = Author(
+                    user_id=user.get("user_id", user.get("userId", "")),
+                    nickname=user.get("nick_name", user.get("nickname", "")),
+                    avatar=user.get("avatar", ""),
+                )
+
+                # Cover image
+                cover = card.get("cover", {})
+                cover_url = cover.get("url_default", cover.get("url_pre", ""))
+
+                # Interaction stats
+                interact = card.get("interact_info", {})
+                likes = self._parse_count(str(interact.get("liked_count", "0")))
+
+                notes.append(NoteCard(
+                    note_id=note_id,
+                    title=title,
+                    cover_url=cover_url,
+                    author=author,
+                    likes=likes,
+                    xsec_token=xsec_token,
+                    note_type=note_type,
+                ))
+            except Exception:
+                continue
+
+        return notes
+
+    async def _dismiss_cookie_banner(self, page: Page) -> None:
+        """Dismiss the cookie consent banner if present."""
+        try:
+            await page.evaluate(
+                'document.querySelector(".cookie-banner__btn--primary")?.click()'
+            )
+        except Exception:
+            pass
+
+    # ── DOM fallback approach ──────────────────────────────────────────
+
+    async def _search_via_dom(
+        self, page: Page, keyword: str, search_type: str, limit: int
+    ) -> List[NoteCard]:
+        """Fallback: collect results via DOM parsing."""
+        # Page should already be on search results from API attempt
+        await random_delay(2.0, 3.0)
+        await self._close_login_modal(page)
+
         notes: List[NoteCard] = []
         seen_ids: set = set()
 
@@ -109,18 +234,24 @@ class SearchScraper(XHSBaseScraper):
             max_scrolls = Config.max_scroll_attempts
 
             while len(notes) < limit and scroll_count < max_scrolls:
-                note_items = await page.query_selector_all(Selectors.NOTE_ITEM)
+                try:
+                    note_items = await page.query_selector_all(Selectors.NOTE_ITEM)
+                except Exception:
+                    # Navigation destroyed context — bail out
+                    break
 
                 for item in note_items:
                     if len(notes) >= limit:
                         break
-
                     try:
                         note = await self._extract_search_result(item)
                         if note and note.note_id not in seen_ids:
                             notes.append(note)
                             seen_ids.add(note.note_id)
-                            progress.update(task, description=f"[cyan]Collected {len(notes)} results...")
+                            progress.update(
+                                task,
+                                description=f"[cyan]Collected {len(notes)} results...",
+                            )
                     except Exception:
                         continue
 
@@ -133,7 +264,7 @@ class SearchScraper(XHSBaseScraper):
 
         return notes
 
-    async def _extract_search_result(self, item: ElementHandle) -> Optional[NoteCard]:
+    async def _extract_search_result(self, item) -> Optional[NoteCard]:
         """Extract search result information from a section.note-item element."""
         try:
             card_info = await item.evaluate(r"""item => {
@@ -201,6 +332,5 @@ class SearchScraper(XHSBaseScraper):
                 note_type=card_info.get("noteType", "normal"),
             )
 
-        except Exception as e:
-            console.print(f"[dim red]Error extracting search result: {e}[/dim red]")
+        except Exception:
             return None

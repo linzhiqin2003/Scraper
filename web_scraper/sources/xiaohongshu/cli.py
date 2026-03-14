@@ -227,7 +227,7 @@ def search(
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum number of results"),
     headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser in headless mode"),
     output: str = typer.Option("./output", "--output", "-o", help="Save results to directory"),
-    save: bool = typer.Option(False, "--save", help="Save results"),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save results to JSON"),
 ) -> None:
     """Search for notes on Xiaohongshu.
 
@@ -301,6 +301,15 @@ def search(
                 title=f"Search: {keyword}",
                 summary=f"Found {len(result.notes)} results",
             )
+
+            # Print fetch commands with full xsec_token (table truncates URLs)
+            console.print()
+            console.print("[dim]Fetch commands (with xsec_token):[/dim]")
+            for note in result.notes[:10]:
+                if note.xsec_token:
+                    console.print(f"  scraper xhs fetch {note.note_id} -t '{note.xsec_token}'")
+                else:
+                    console.print(f"  scraper xhs fetch {note.note_id}")
 
             if save:
                 storage = JSONStorage(SOURCE_NAME, output_dir=None)

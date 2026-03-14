@@ -301,7 +301,9 @@ def search(
         console.print(f"     {'  '.join(meta_parts)}")
 
         if tweet.media_urls:
-            console.print(f"     [magenta]media: {len(tweet.media_urls)} item(s)[/magenta]")
+            console.print(f"     [magenta]media ({len(tweet.media_urls)}):[/magenta]")
+            for url in tweet.media_urls:
+                console.print(f"       [dim]{url}[/dim]")
 
         console.print()
 
