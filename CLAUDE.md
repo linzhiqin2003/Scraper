@@ -100,7 +100,7 @@ scraper xhs fetch <note_id> --token <xsec_token>  # Fetch note
 scraper xhs options                        # Show categories + search types
 
 # WSJ (Wall Street Journal)
-scraper wsj login                          # Login with stored credentials
+scraper wsj login                          # Login with stored credentials (headed by default)
 scraper wsj status                         # Verify cookies
 scraper wsj browse -c technology -n 20     # Browse RSS feeds (shallow by default)
 scraper wsj browse -c markets -n 5 --no-shallow  # Browse + fetch full content

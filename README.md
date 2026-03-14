@@ -53,7 +53,7 @@ scraper reuters fetch "https://www.reuters.com/world/article-url/"
 ### WSJ (Wall Street Journal)
 
 ```bash
-# Login with stored credentials (preferred)
+# Login with stored credentials (preferred, headed by default)
 scraper wsj login
 
 # Check cookies validity

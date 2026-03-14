@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from ...core.browser import ensure_display
 from ...core.display import (
     ColumnDef,
     console,
@@ -41,19 +42,24 @@ def login(
     email: Optional[str] = typer.Option(None, "--email", "-e", help="WSJ account email override", hidden=True),
     password: Optional[str] = typer.Option(None, "--password", "-p", help="WSJ account password override", hidden=True),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Manual login in browser"),
-    headless: bool = typer.Option(True, "--headless/--no-headless", help="Run browser headlessly (default: headless)"),
+    headless: bool = typer.Option(False, "--headless/--no-headless", help="Run browser headlessly (default: headed for CAPTCHA solving)"),
 ) -> None:
     """Login to WSJ via browser automation (Patchright).
 
     Automated mode (default): reads credentials from stored config first-class,
-    then env vars or explicit overrides. Auto-solves CAPTCHA in headless mode.
+    then env vars or explicit overrides. Uses headed mode by default because
+    WSJ CAPTCHA solving is more reliable there.
     Interactive mode (-i): opens browser for you to login manually.
 
     Examples:
-      scraper wsj login      # uses stored credentials, headless
+      scraper wsj login      # uses stored credentials, headed
       scraper wsj login -i   # manual browser login
     """
     from .auth import login as auto_login, login_interactive
+
+    if not headless and ensure_display(headless=False):
+        console.print("[yellow]Display unavailable; falling back to headless mode[/yellow]")
+        headless = True
 
     if interactive:
         console.print("[bold]Opening browser for manual login...[/bold]")
