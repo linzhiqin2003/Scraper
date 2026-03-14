@@ -9,6 +9,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ....core.rate_limiter import RateLimiter
+from ..browser_fetch import fetch_html
 from ..config import SOURCE_NAME, BASE_URL, DEFAULT_HEADERS
 from ..models import ArticleDetail
 from ..cookies import load_cookies
@@ -221,25 +222,33 @@ class ArticleScraper:
         Raises:
             Exception: HTTP errors or access restrictions
         """
-        with httpx.Client(
-            cookies=self.cookies,
-            headers=DEFAULT_HEADERS,
-            follow_redirects=True,
-            timeout=30.0,
-        ) as client:
-            response = client.get(url)
+        html = None
+        try:
+            with httpx.Client(
+                cookies=self.cookies,
+                headers=DEFAULT_HEADERS,
+                follow_redirects=True,
+                timeout=30.0,
+            ) as client:
+                response = client.get(url)
 
-            if response.status_code == 401:
-                raise Exception("401 Unauthorized: Cookies may be expired")
+                if response.status_code == 401:
+                    raise Exception("401 Unauthorized: Cookies may be expired")
 
-            if response.status_code != 200:
-                raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
+                if response.status_code != 200:
+                    raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
 
-            html = response.text
+                html = response.text
+        except Exception:
+            html = fetch_html(url)
 
         # Check access restrictions
-        if "Access is temporarily restricted" in html or "captcha-delivery" in html:
-            raise Exception("Access restricted, CAPTCHA required")
+        if (
+            "Access is temporarily restricted" in html
+            or "captcha-delivery" in html
+            or "Please enable " in html
+        ):
+            html = fetch_html(url)
 
         return parse_article_html(html, url)
 

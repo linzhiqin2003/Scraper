@@ -71,11 +71,23 @@ async def check_cookies_valid_async(cookies: httpx.Cookies) -> Tuple[bool, str]:
 def check_cookies_valid_sync(cookies: httpx.Cookies) -> Tuple[bool, str]:
     """Verify cookies work by checking WSJ homepage for login status (sync)."""
     test_url = "https://www.wsj.com/"
+    fallback_message = "Cookies may be expired (browser validation failed)"
 
     with httpx.Client(cookies=cookies, follow_redirects=True) as client:
         try:
             resp = client.get(test_url, headers=DEFAULT_HEADERS)
-            return _interpret_validation_response(resp.status_code, resp.text, cookies)
+            is_valid, message = _interpret_validation_response(resp.status_code, resp.text, cookies)
+            if is_valid:
+                return is_valid, message
+            fallback_message = message
 
         except httpx.RequestError as e:
-            return False, f"Request error: {e}"
+            fallback_message = f"Request error: {e}"
+
+    try:
+        from .browser_fetch import fetch_html
+
+        html = fetch_html(test_url)
+        return _interpret_validation_response(200, html, cookies)
+    except Exception:
+        return False, fallback_message

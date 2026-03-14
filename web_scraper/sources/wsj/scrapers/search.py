@@ -18,6 +18,7 @@ from ..config import (
     SEARCH_DATE_RANGE,
     SEARCH_SOURCES,
 )
+from ..browser_fetch import fetch_html
 from ..models import SearchResult, SearchResponse
 from ..cookies import load_cookies
 
@@ -155,22 +156,29 @@ class SearchScraper:
         url = f"{SEARCH_URL}?{urlencode(params)}"
 
         # Send request
-        with httpx.Client(
-            cookies=self.cookies,
-            headers=DEFAULT_HEADERS,
-            follow_redirects=True,
-            timeout=30.0,
-        ) as client:
-            response = client.get(url)
+        try:
+            with httpx.Client(
+                cookies=self.cookies,
+                headers=DEFAULT_HEADERS,
+                follow_redirects=True,
+                timeout=30.0,
+            ) as client:
+                response = client.get(url)
 
-            if response.status_code != 200:
-                raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
+                if response.status_code != 200:
+                    raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
 
-            html = response.text
+                html = response.text
+        except Exception:
+            html = fetch_html(url)
 
-        # Check rate limiting
-        if "Access is temporarily restricted" in html or "captcha" in html.lower():
-            raise Exception("Access restricted, CAPTCHA required")
+        # Check rate limiting / browser challenge pages
+        if (
+            "Access is temporarily restricted" in html
+            or "captcha" in html.lower()
+            or "Please enable " in html
+        ):
+            html = fetch_html(url)
 
         # Extract data
         raw_results = extract_search_results(html)
