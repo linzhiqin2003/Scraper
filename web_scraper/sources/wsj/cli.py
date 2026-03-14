@@ -452,16 +452,6 @@ def search(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         display_saved(output, description="Articles")
-    elif scraped_articles:
-        for article in scraped_articles:
-            filename = f"{article.article_id}.json"
-            storage.save(
-                article.model_dump(mode="json"),
-                filename,
-                description="article",
-                silent=True,
-            )
-        console.print(f"[dim]Articles saved to: {storage.data_dir}[/dim]")
 
 
 # =============================================================================
