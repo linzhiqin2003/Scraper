@@ -27,6 +27,26 @@ def _page_looks_blocked(html: str) -> bool:
     )
 
 
+def _wait_until_unblocked(page, *, timeout: float = 20.0) -> str:
+    """Wait for DataDome interstitial/captcha pages to clear."""
+    deadline = time.monotonic() + timeout
+    latest_html = page.content()
+    while time.monotonic() < deadline:
+        if _find_captcha_frame(page):
+            _solve_slider_captcha(page, timeout=8.0, max_attempts=2)
+        _dismiss_consent_dialog(page)
+        _dismiss_cookie_banner(page)
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        time.sleep(2)
+        latest_html = page.content()
+        if not _page_looks_blocked(latest_html):
+            return latest_html
+    return latest_html
+
+
 def fetch_html(url: str, cookies_path: Path | None = None, *, headless: bool = False) -> str:
     """Fetch a WSJ page through Patchright using saved cookies."""
     if not headless and ensure_display(headless=False):
@@ -89,6 +109,9 @@ def fetch_html(url: str, cookies_path: Path | None = None, *, headless: bool = F
             except Exception:
                 pass
             time.sleep(2)
+            home_html = page.content()
+            if _page_looks_blocked(home_html):
+                _wait_until_unblocked(page, timeout=20.0)
 
             for _ in range(2):
                 page.goto(url, timeout=60000, wait_until="domcontentloaded")
@@ -103,6 +126,8 @@ def fetch_html(url: str, cookies_path: Path | None = None, *, headless: bool = F
                     pass
                 time.sleep(2)
                 html = page.content()
+                if _page_looks_blocked(html):
+                    html = _wait_until_unblocked(page, timeout=25.0)
                 if not _page_looks_blocked(html):
                     return html
 
