@@ -23,3 +23,10 @@ jobs:
             /root/.local/bin/poetry lock 2>/dev/null || true
             /root/.local/bin/poetry install --no-interaction
             echo "✅ Deployed $(git log --oneline -1)"
+
+      - name: Trigger AgentSkills deploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GH_PAT }}
+          repository: CognitioLab/AgentSkills
+          event-type: scraper-updated
