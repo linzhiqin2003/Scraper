@@ -1,6 +1,7 @@
 """CLI interface for Zhihu scraper."""
 
 import json
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -329,7 +330,7 @@ def search(
             stats_parts.append(f"{r.comments}评")
         rows.append({
             "type": r.content_type,
-            "title": truncate(r.title, 40),
+            "title": truncate(re.sub(r"<[^>]+>", "", r.title), 40),
             "author": r.author or "-",
             "stats": " ".join(stats_parts),
             "url": r.url,
@@ -347,6 +348,12 @@ def search(
         title=f"Search: {query}",
         summary=f"Found {len(response.results)} results (source: {source_info})",
     )
+
+    # Print full URLs for easy fetch (table truncates them)
+    console.print()
+    console.print("[dim]Fetch commands:[/dim]")
+    for r in response.results[:10]:
+        console.print(f"  scraper zhihu fetch '{r.url}'")
 
     if output:
         data = [r.model_dump(mode="json") for r in response.results]

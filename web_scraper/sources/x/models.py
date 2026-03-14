@@ -35,6 +35,25 @@ class XTweet(BaseModel):
     quoted_tweet: Optional["XTweet"] = None
 
 
+class XReplyThread(BaseModel):
+    """A conversation thread (replies chain)."""
+    replies: List[XTweet] = Field(default_factory=list)
+    has_more: bool = Field(default=False, description="Has ShowMore cursor")
+
+
+class XTweetDetail(BaseModel):
+    """Full tweet detail with replies."""
+    tweet: XTweet = Field(description="The focal tweet")
+    replies: List[XReplyThread] = Field(default_factory=list, description="Reply threads")
+    reply_count: int = Field(default=0, description="Total replies extracted")
+    cursor_bottom: Optional[str] = Field(default=None, description="Pagination cursor")
+    scraped_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "json_encoders": {datetime: lambda v: v.isoformat() if v else None}
+    }
+
+
 class XSearchResponse(BaseModel):
     """Search response."""
     query: str

@@ -11,7 +11,7 @@ from ..config import (
     QUERY_IDS,
     get_cookies_from_file,
 )
-from ..models import XSearchResponse, XTweet, XUser
+from ..models import XReplyThread, XSearchResponse, XTweet, XTweetDetail, XUser
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +204,101 @@ class SearchScraper:
 
         data = self._graphql_post("SearchTimeline", variables)
         return self._parse_search_response(raw_query, product, data)
+
+    def fetch(
+        self,
+        tweet_id: str,
+        max_replies: int = 50,
+        ranking: str = "Relevance",
+    ) -> XTweetDetail:
+        """Fetch a tweet with its replies.
+
+        Args:
+            tweet_id: Tweet ID (numeric string).
+            max_replies: Max reply tweets to collect (across pages).
+            ranking: Reply sort order — "Relevance" or "Recency".
+
+        Returns:
+            XTweetDetail with focal tweet and reply threads.
+        """
+        variables = {
+            "focalTweetId": tweet_id,
+            "with_rux_injections": False,
+            "rankingMode": ranking,
+            "includePromotedContent": False,
+            "withCommunity": True,
+            "withQuickPromoteEligibilityTweetFields": False,
+            "withBirdwatchNotes": True,
+            "withVoice": True,
+        }
+
+        field_toggles = {
+            "withArticleRichContentState": True,
+            "withArticlePlainText": False,
+            "withGrokAnalyze": False,
+            "withDisallowedReplyControls": False,
+        }
+
+        all_threads: list[XReplyThread] = []
+        focal_tweet: Optional[XTweet] = None
+        total_replies = 0
+        cursor: Optional[str] = None
+        pages = 0
+        max_pages = max(1, (max_replies + 29) // 30)
+
+        while pages < max_pages:
+            if cursor:
+                variables["cursor"] = cursor
+                variables["referrer"] = "tweet"
+
+            data = self._graphql_get("TweetDetail", variables, field_toggles=field_toggles)
+            tweet, threads, bottom_cursor = self._parse_tweet_detail(data)
+
+            if tweet and not focal_tweet:
+                focal_tweet = tweet
+
+            for thread in threads:
+                all_threads.append(thread)
+                total_replies += len(thread.replies)
+
+            pages += 1
+            cursor = bottom_cursor
+
+            if not cursor or total_replies >= max_replies:
+                break
+
+        if not focal_tweet:
+            raise RuntimeError(f"Tweet {tweet_id} not found or unavailable")
+
+        return XTweetDetail(
+            tweet=focal_tweet,
+            replies=all_threads,
+            reply_count=total_replies,
+            cursor_bottom=cursor,
+        )
+
+    def _graphql_get(
+        self,
+        operation: str,
+        variables: dict,
+        field_toggles: Optional[dict] = None,
+    ) -> dict:
+        """Make authenticated GraphQL GET request (used by TweetDetail)."""
+        import urllib.parse
+
+        query_id = QUERY_IDS[operation]
+        url = f"{GRAPHQL_BASE}/{query_id}/{operation}"
+
+        params = {
+            "variables": json.dumps(variables, separators=(",", ":")),
+            "features": json.dumps(FEATURES, separators=(",", ":")),
+        }
+        if field_toggles:
+            params["fieldToggles"] = json.dumps(field_toggles, separators=(",", ":"))
+
+        resp = self._client.get(url, params=params)
+        self._client.raise_for_status(resp, context="X API")
+        return resp.json()
 
     def _graphql_post(self, operation: str, variables: dict) -> dict:
         """Make authenticated GraphQL POST request."""
@@ -403,3 +498,68 @@ class SearchScraper:
         except (KeyError, TypeError) as e:
             logger.debug("Failed to extract tweet: %s", e)
             return None
+
+    def _parse_tweet_detail(
+        self, data: dict
+    ) -> tuple[Optional[XTweet], list[XReplyThread], Optional[str]]:
+        """Parse TweetDetail GraphQL response.
+
+        Returns:
+            (focal_tweet, reply_threads, cursor_bottom)
+        """
+        focal_tweet: Optional[XTweet] = None
+        threads: list[XReplyThread] = []
+        cursor_bottom: Optional[str] = None
+
+        try:
+            instructions = (
+                data["data"]["threaded_conversation_with_injections_v2"]["instructions"]
+            )
+        except (KeyError, TypeError):
+            logger.warning("Unexpected TweetDetail structure: %s", json.dumps(data)[:300])
+            return None, [], None
+
+        for instruction in instructions:
+            if instruction.get("type") != "TimelineAddEntries":
+                continue
+
+            for entry in instruction.get("entries", []):
+                entry_id = entry.get("entryId", "")
+                content = entry.get("content", {})
+
+                # Cursor
+                if entry_id.startswith("cursor-bottom"):
+                    cursor_bottom = content.get("value")
+                    continue
+
+                # Focal tweet (TimelineTimelineItem)
+                if entry_id.startswith("tweet-"):
+                    item_content = content.get("itemContent", {})
+                    tweet = self._extract_tweet_from_content(item_content)
+                    if tweet:
+                        focal_tweet = tweet
+                    continue
+
+                # Reply threads (TimelineTimelineModule)
+                if entry_id.startswith("conversationthread-"):
+                    items = content.get("items", [])
+                    replies: list[XTweet] = []
+                    has_more = False
+
+                    for item in items:
+                        item_data = item.get("item", {})
+                        item_content = item_data.get("itemContent", {})
+                        typename = item_content.get("__typename", "")
+
+                        if typename == "TimelineTweet":
+                            tweet = self._extract_tweet_from_content(item_content)
+                            if tweet:
+                                replies.append(tweet)
+                        elif typename == "TimelineTimelineCursor":
+                            if item_content.get("cursorType") == "ShowMore":
+                                has_more = True
+
+                    if replies:
+                        threads.append(XReplyThread(replies=replies, has_more=has_more))
+
+        return focal_tweet, threads, cursor_bottom

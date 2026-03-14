@@ -321,5 +321,140 @@ def search(
         display_saved(path)
 
 
+# =============================================================================
+# Fetch (tweet detail + replies)
+# =============================================================================
+
+
+def _display_tweet(tweet, indent: str = "", index: Optional[int] = None) -> None:
+    """Display a single tweet with stats."""
+    prefix = f"[dim]{index:3}.[/dim] " if index is not None else indent
+    author_str = f"[cyan]@{tweet.author.screen_name}[/cyan] " if tweet.author else ""
+
+    text = tweet.full_text.replace("\n", " ")
+    if len(text) > 300:
+        text = text[:300] + "..."
+
+    console.print(f"{prefix}{author_str}[bold]{text}[/bold]")
+
+    stats = []
+    if tweet.view_count:
+        stats.append(f"views:{tweet.view_count}")
+    stats.append(f"likes:{tweet.favorite_count}")
+    stats.append(f"rt:{tweet.retweet_count}")
+    stats.append(f"replies:{tweet.reply_count}")
+
+    meta_parts = [f"[yellow]{' | '.join(stats)}[/yellow]"]
+    if tweet.created_at:
+        meta_parts.append(f"[green]{tweet.created_at}[/green]")
+    if tweet.url:
+        meta_parts.append(f"[dim]{tweet.url}[/dim]")
+
+    console.print(f"{indent}     {'  '.join(meta_parts)}")
+
+    if tweet.media_urls:
+        console.print(f"{indent}     [magenta]media ({len(tweet.media_urls)}):[/magenta]")
+        for url in tweet.media_urls:
+            console.print(f"{indent}       [dim]{url}[/dim]")
+
+
+@app.command()
+def fetch(
+    url_or_id: str = typer.Argument(..., help="Tweet URL or ID"),
+    replies: int = typer.Option(50, "--replies", "-n", help="Max replies to fetch"),
+    ranking: str = typer.Option("Relevance", "--ranking", "-r", help="Reply sort: Relevance, Recency"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to JSON file"),
+    save: bool = typer.Option(False, "--save", help="Save results"),
+) -> None:
+    """Fetch a tweet with its replies/comments.
+
+    Examples:
+      scraper x fetch https://x.com/elonmusk/status/123456789
+      scraper x fetch 123456789 -n 100
+      scraper x fetch 123456789 --ranking Recency
+    """
+    # Extract tweet ID from URL or use directly
+    tweet_id = url_or_id
+    if "/" in url_or_id:
+        parts = url_or_id.rstrip("/").split("/")
+        tweet_id = parts[-1]
+
+    if not tweet_id.isdigit():
+        console.print(f"[red]Invalid tweet ID: {tweet_id}[/red]")
+        raise typer.Exit(1)
+
+    scraper = SearchScraper()
+    if not scraper.is_configured():
+        console.print("[red]Not authenticated. Import cookies first:[/red]")
+        console.print("  scraper x import-cookies <cookies.txt>")
+        raise typer.Exit(1)
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            progress.add_task(f"Fetching tweet {tweet_id}...", total=None)
+            detail = scraper.fetch(tweet_id, max_replies=replies, ranking=ranking)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    # Display focal tweet
+    console.print("\n[bold]── Tweet ──[/bold]\n")
+    _display_tweet(detail.tweet)
+    console.print()
+
+    # Display replies
+    if detail.replies:
+        console.print(f"[bold]── Replies ({detail.reply_count}) ──[/bold]\n")
+        reply_num = 0
+        for thread in detail.replies:
+            for i, reply in enumerate(thread.replies):
+                reply_num += 1
+                indent = "  " if i > 0 else ""
+                prefix = f"[dim]{reply_num:3}.[/dim] " if i == 0 else f"      {indent}"
+                author_str = f"[cyan]@{reply.author.screen_name}[/cyan] " if reply.author else ""
+
+                text = reply.full_text.replace("\n", " ")
+                if len(text) > 200:
+                    text = text[:200] + "..."
+
+                console.print(f"{prefix}{author_str}{text}")
+
+                stats = []
+                stats.append(f"likes:{reply.favorite_count}")
+                if reply.retweet_count:
+                    stats.append(f"rt:{reply.retweet_count}")
+                if reply.created_at:
+                    stats.append(reply.created_at)
+
+                console.print(f"      {indent}[dim]{' | '.join(stats)}[/dim]")
+
+                if reply.media_urls:
+                    for url in reply.media_urls:
+                        console.print(f"      {indent}[dim]{url}[/dim]")
+
+            if thread.has_more:
+                console.print("      [dim]... more replies in this thread[/dim]")
+            console.print()
+
+    if not detail.replies:
+        console.print("[dim]No replies found[/dim]")
+
+    # Save
+    if output:
+        data = detail.model_dump(mode="json")
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        display_saved(output)
+    elif save:
+        storage = JSONStorage(source=SOURCE_NAME)
+        data = detail.model_dump(mode="json")
+        path = storage.save(data, f"tweet_{tweet_id}.json", description="tweet detail")
+        display_saved(path)
+
+
 if __name__ == "__main__":
     app()
