@@ -126,6 +126,7 @@ def _open_weibo_page(
     storage_state = str(state_file) if use_storage_state and state_file.exists() else None
 
     last_error: Optional[Exception] = None
+    launched = False
     with sync_playwright() as playwright:
         for _strategy_name, launch_kwargs in _launch_strategies(headless):
             browser = None
@@ -145,22 +146,7 @@ def _open_weibo_page(
                     "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
                 )
                 page = context.new_page()
-                try:
-                    yield page
-                except BaseException:
-                    # If caller throws into the generator (e.g. LoginRequiredError),
-                    # clean up and re-raise instead of trying next strategy.
-                    try:
-                        context.close()
-                    finally:
-                        browser.close()
-                    raise
-                else:
-                    try:
-                        context.close()
-                    finally:
-                        browser.close()
-                return
+                launched = True
             except Exception as exc:
                 last_error = exc
                 if context is not None:
@@ -175,8 +161,22 @@ def _open_weibo_page(
                         pass
                 continue
 
-    message = f"Browser launch failed for all strategies. Last error: {last_error}"
-    raise RuntimeError(message)
+            # Successfully launched — yield to caller, then clean up.
+            # This is outside the try/except loop so caller exceptions
+            # (e.g. LoginRequiredError) propagate directly without being
+            # caught by the strategy fallback loop.
+            try:
+                yield page
+            finally:
+                try:
+                    context.close()
+                finally:
+                    browser.close()
+            return
+
+    if not launched:
+        message = f"Browser launch failed for all strategies. Last error: {last_error}"
+        raise RuntimeError(message)
 
 
 def _friendly_browser_error(exc: Exception) -> str:
