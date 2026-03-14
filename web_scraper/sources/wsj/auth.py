@@ -3,6 +3,7 @@
 Uses Patchright to bypass DataDome bot detection, auto-solves slider CAPTCHA,
 and saves session cookies to ~/.web_scraper/wsj/cookies.txt in Netscape format.
 """
+import json
 import logging
 import random
 import time
@@ -11,6 +12,7 @@ from typing import Optional
 
 from ...core.cookies import get_cookies_path
 from .config import SOURCE_NAME
+from .headers import save_browser_profile
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +215,17 @@ def _extract_and_save_cookies(ctx, page=None) -> Optional[Path]:
             pass
         # Wait for JS to set all cookies (DJSESSION etc. are set asynchronously)
         time.sleep(5)
+        try:
+            profile = page.evaluate("""() => ({
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.userAgentData?.platform || navigator.platform || "",
+                brands: navigator.userAgentData?.brands || []
+            })""")
+            if profile:
+                save_browser_profile(json.loads(json.dumps(profile)))
+        except Exception:
+            pass
 
     all_cookies = ctx.cookies()
 

@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Dict
 
-from ...core.user_agent import build_browser_headers
+from .headers import build_wsj_headers
 
 SOURCE_NAME = "wsj"
 BASE_URL = "https://www.wsj.com"
@@ -43,7 +43,7 @@ SEARCH_SOURCES: Dict[str, str] = {
 }
 
 # HTTP Headers for requests
-DEFAULT_HEADERS = build_browser_headers()
+DEFAULT_HEADERS = build_wsj_headers()
 
 
 @dataclass(frozen=True)
