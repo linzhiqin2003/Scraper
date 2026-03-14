@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from ...core.browser import get_state_path
 from ...core.cookies import get_cookies_path
 from .config import SOURCE_NAME
 from .headers import save_browser_profile
@@ -239,6 +240,13 @@ def _extract_and_save_cookies(ctx, page=None) -> Optional[Path]:
 
     if not wsj_cookies:
         return None
+
+    try:
+        state_path = get_state_path(SOURCE_NAME)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.storage_state(path=str(state_path))
+    except Exception:
+        pass
 
     return _save_cookies_netscape(wsj_cookies, SOURCE_NAME)
 

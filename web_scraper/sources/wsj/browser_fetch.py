@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ...core.browser import ensure_display
+from ...core.browser import ensure_display, get_state_path
 from ...core.cookies import load_cookies_playwright
 from .auth import (
     _dismiss_consent_dialog,
@@ -57,12 +57,19 @@ def fetch_html(url: str, cookies_path: Path | None = None, *, headless: bool = F
                 *([] if not headless else ["--headless=new"]),
             ],
         )
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=user_agent,
-            locale=locale,
-            timezone_id="America/New_York",
-        )
+        context_kwargs = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": locale,
+            "timezone_id": "America/New_York",
+        }
+        if user_agent:
+            context_kwargs["user_agent"] = user_agent
+
+        state_path = get_state_path(SOURCE_NAME)
+        if state_path.exists():
+            context_kwargs["storage_state"] = str(state_path)
+
+        context = browser.new_context(**context_kwargs)
 
         cookies = load_cookies_playwright(SOURCE_NAME, cookies_path)
         if cookies:
