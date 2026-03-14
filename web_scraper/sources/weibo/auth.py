@@ -58,6 +58,10 @@ def _classify_url(url: str) -> LoginStatus:
             return LoginStatus.LOGGED_OUT
         return LoginStatus.UNKNOWN
 
+    # SSO ticket redirect via login.sina.com.cn — session expired.
+    if host == "login.sina.com.cn":
+        return LoginStatus.LOGGED_OUT
+
     # WeChat OAuth handoff page - still pending user action.
     if host == "open.weixin.qq.com":
         return LoginStatus.UNKNOWN
@@ -143,7 +147,15 @@ def _open_weibo_page(
                 page = context.new_page()
                 try:
                     yield page
-                finally:
+                except BaseException:
+                    # If caller throws into the generator (e.g. LoginRequiredError),
+                    # clean up and re-raise instead of trying next strategy.
+                    try:
+                        context.close()
+                    finally:
+                        browser.close()
+                    raise
+                else:
                     try:
                         context.close()
                     finally:
