@@ -27,7 +27,12 @@ WSJ_LOGIN_URL = "https://www.wsj.com/client/login"
 def _find_captcha_frame(page):
     """Find the DataDome captcha frame if present."""
     for f in page.frames:
-        if "captcha" in f.url or "geo.captcha" in f.url:
+        if (
+            "captcha" in f.url
+            or "geo.captcha" in f.url
+            or "interstitial" in f.url
+            or "captcha-delivery.com" in f.url
+        ):
             return f
     return None
 
@@ -90,6 +95,7 @@ def _solve_slider_captcha(page, *, timeout: float = 25.0, max_attempts: int = 4)
                 'iframe[src*="captcha"]',
                 'iframe[src*="geo.captcha"]',
                 'iframe[src*="captcha-delivery"]',
+                'iframe[src*="interstitial"]',
             ];
             for (const sel of selectors) {
                 const iframe = document.querySelector(sel);
@@ -101,7 +107,7 @@ def _solve_slider_captcha(page, *, timeout: float = 25.0, max_attempts: int = 4)
             // Fallback: find any iframe with captcha in src
             const all = document.querySelectorAll('iframe');
             for (const iframe of all) {
-                if (iframe.src && iframe.src.includes('captcha')) {
+                if (iframe.src && (iframe.src.includes('captcha') || iframe.src.includes('interstitial'))) {
                     const r = iframe.getBoundingClientRect();
                     return {x: r.x, y: r.y, w: r.width, h: r.height};
                 }
