@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -13,9 +14,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from ...core.cookies import import_cookies as _import_cookies
 from ...core.display import console, display_auth_status, display_saved
 from ...core.storage import JSONStorage
+from .auth import AuthStatus, LoginStatus, interactive_login, check_saved_session, clear_session
 from .config import (
     AUTH_COOKIE_NAMES,
     COOKIES_FILE,
+    QR_IMAGE_PATH,
     SOURCE_NAME,
     get_cookies_from_file,
 )
@@ -34,15 +37,80 @@ def _safe_filename(text: str) -> str:
     return slug[:80] or "untitled"
 
 
+SESSION_EXPIRED_HINT = (
+    "[yellow]Session expired. Re-login with:[/yellow]\n"
+    "  scraper wechat login --headless\n"
+    "[dim]Then scan the QR code at ~/.web_scraper/wechat/login_qrcode.png[/dim]"
+)
+
+
+def _handle_error(e: Exception) -> None:
+    """Print error with session-expired hint if applicable."""
+    msg = str(e)
+    console.print(f"\n[red]Error:[/red] {msg}")
+    if "会话已过期" in msg or "ret=200003" in msg:
+        console.print(SESSION_EXPIRED_HINT)
+
+
 def _get_scraper(token: Optional[str] = None) -> MPPlatformScraper:
     """Create MPPlatformScraper, raising Exit if not configured."""
     cookies = get_cookies_from_file()
     scraper = MPPlatformScraper(token=token, cookies=cookies)
     if not scraper.is_configured():
-        console.print("[red]Not authenticated. Import cookies first:[/red]")
-        console.print("  scraper wechat import-cookies <cookies.txt>")
+        console.print("[red]Not authenticated or session expired.[/red]")
+        console.print(SESSION_EXPIRED_HINT)
         raise typer.Exit(1)
     return scraper
+
+
+# =============================================================================
+# Login
+# =============================================================================
+
+
+@app.command()
+def login(
+    headless: bool = typer.Option(False, "--headless", help="Run headlessly (QR saved as image)"),
+    timeout: int = typer.Option(120, "--timeout", help="Max seconds to wait for QR scan"),
+    qr_path: Optional[str] = typer.Option(None, "--qr-path", help="Custom path to save QR image"),
+) -> None:
+    """Login via WeChat QR code scan.
+
+    Opens the WeChat MP platform login page, captures the QR code,
+    and waits for you to scan it with WeChat.
+
+    In headed mode (default), the browser window is visible for scanning.
+    In headless mode, the QR code is saved as an image file.
+
+    Examples:
+      scraper wechat login
+      scraper wechat login --headless
+      scraper wechat login --qr-path ~/Desktop/qr.png
+    """
+    save_path = Path(qr_path) if qr_path else None
+
+    console.print("[bold]Opening WeChat MP login page...[/bold]")
+    if headless:
+        console.print("[dim]Headless mode: QR code will be saved as image[/dim]")
+
+    def _on_qr_ready(path: str) -> None:
+        console.print(f"\n[green]QR code saved to:[/green] {path}")
+        console.print("[dim]Scan with WeChat to login, waiting...[/dim]")
+
+    result = interactive_login(
+        headless=headless,
+        timeout_seconds=timeout,
+        qr_save_path=save_path,
+        on_qr_ready=_on_qr_ready,
+    )
+
+    if result.status == LoginStatus.LOGGED_IN:
+        console.print("\n[bold green]Login successful![/bold green]")
+        console.print(f"[dim]{result.message}[/dim]")
+    elif result.status == LoginStatus.LOGGED_OUT:
+        console.print(f"\n[yellow]{result.message}[/yellow]")
+    else:
+        console.print(f"\n[red]{result.message}[/red]")
 
 
 # =============================================================================
@@ -122,12 +190,18 @@ def import_cookies_cmd(
 
 @app.command()
 def logout() -> None:
-    """Clear saved cookies."""
+    """Clear saved cookies and session state."""
+    cleared = clear_session()
     if COOKIES_FILE.exists():
         COOKIES_FILE.unlink()
-        console.print("[green]Cookies cleared[/green]")
+        cleared = True
+    if QR_IMAGE_PATH.exists():
+        QR_IMAGE_PATH.unlink()
+
+    if cleared:
+        console.print("[green]Session and cookies cleared[/green]")
     else:
-        console.print("[dim]No cookies to clear[/dim]")
+        console.print("[dim]No session to clear[/dim]")
 
 
 # =============================================================================
@@ -167,7 +241,7 @@ def search(
         try:
             accounts = scraper.search_account(query)
         except Exception as e:
-            console.print(f"\n[red]Error:[/red] {e}")
+            _handle_error(e)
             raise typer.Exit(1)
 
     if not accounts:
@@ -217,7 +291,7 @@ def search(
                         begin=begin,
                     )
             except Exception as e:
-                console.print(f"\n[red]Error:[/red] {e}")
+                _handle_error(e)
                 break
 
             if not resp.articles:
@@ -358,7 +432,7 @@ def fetch(
         try:
             article = scraper.fetch(url)
         except Exception as e:
-            console.print(f"[red]Error:[/red] {e}")
+            _handle_error(e)
             raise typer.Exit(1)
 
     # Display

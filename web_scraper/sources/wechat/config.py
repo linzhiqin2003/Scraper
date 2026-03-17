@@ -1,11 +1,20 @@
 """Configuration for WeChat Official Accounts scraper."""
 from dataclasses import dataclass
+from pathlib import Path
 
 from ...core.cookies import get_cookies_path, load_cookies
 
 SOURCE_NAME = "wechat"
 BASE_URL = "https://mp.weixin.qq.com"
 COOKIES_FILE = get_cookies_path(SOURCE_NAME)
+
+# Data directory
+DATA_DIR = Path.home() / ".web_scraper" / SOURCE_NAME
+
+# Login QR code
+LOGIN_QR_SELECTOR = "img.login__type__container__scan__qrcode"
+LOGIN_SUCCESS_INDICATOR = ".weui-desktop-account__nickname"  # Dashboard element after login
+QR_IMAGE_PATH = DATA_DIR / "login_qrcode.png"
 
 # MP platform API base
 MP_API_BASE = "https://mp.weixin.qq.com/cgi-bin"
@@ -53,9 +62,10 @@ class Selectors:
 
 @dataclass
 class Timeouts:
-    """Timeout configurations in seconds."""
+    """Timeout configurations in seconds/milliseconds."""
     DEFAULT = 30
-    NAVIGATION = 60
+    NAVIGATION = 60_000  # ms
+    LOGIN_MANUAL = 120_000  # ms — 2 minutes for QR scan
 
 
 def get_cookies_from_file() -> dict[str, str]:
