@@ -39,7 +39,7 @@ def _safe_filename(text: str) -> str:
 
 SESSION_EXPIRED_HINT = (
     "[yellow]Session expired. Re-login with:[/yellow]\n"
-    "  scraper wechat login --headless\n"
+    "  scraper wechat login\n"
     "[dim]Then scan the QR code at ~/.web_scraper/wechat/login_qrcode.png[/dim]"
 )
 
@@ -70,7 +70,7 @@ def _get_scraper(token: Optional[str] = None) -> MPPlatformScraper:
 
 @app.command()
 def login(
-    headless: bool = typer.Option(False, "--headless", help="Run headlessly (QR saved as image)"),
+    headless: bool = typer.Option(True, "--headless/--headed", help="Headless mode (default) or open browser window"),
     timeout: int = typer.Option(120, "--timeout", help="Max seconds to wait for QR scan"),
     qr_path: Optional[str] = typer.Option(None, "--qr-path", help="Custom path to save QR image"),
 ) -> None:
@@ -79,12 +79,12 @@ def login(
     Opens the WeChat MP platform login page, captures the QR code,
     and waits for you to scan it with WeChat.
 
-    In headed mode (default), the browser window is visible for scanning.
-    In headless mode, the QR code is saved as an image file.
+    In headless mode (default), the QR code is saved as an image file.
+    In headed mode, the browser window is visible for scanning.
 
     Examples:
       scraper wechat login
-      scraper wechat login --headless
+      scraper wechat login --headed
       scraper wechat login --qr-path ~/Desktop/qr.png
     """
     save_path = Path(qr_path) if qr_path else None
