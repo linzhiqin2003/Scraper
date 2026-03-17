@@ -27,6 +27,7 @@ from .captcha import (
     CaptchaSolver,
     NullCaptchaSolver,
 )
+from .captcha_vlm import VLMCaptchaSolver, solve_captcha_on_page, detect_captcha
 
 __all__ = [
     "ScraperError",
@@ -61,4 +62,7 @@ __all__ = [
     "CaptchaSolution",
     "CaptchaSolver",
     "NullCaptchaSolver",
+    "VLMCaptchaSolver",
+    "solve_captcha_on_page",
+    "detect_captcha",
 ]
