@@ -11,7 +11,7 @@ from typing import Iterator, Optional
 
 from patchright.sync_api import Page, TimeoutError as PlaywrightTimeout, sync_playwright
 
-from ...core.browser import get_state_path
+from ...core.browser import ensure_display, get_state_path
 from ...core.cookies import get_cookies_path
 from .config import (
     BASE_URL,
@@ -57,6 +57,11 @@ def _open_page(
     """Create browser page with strategy fallback."""
     state_file = get_state_path(SOURCE_NAME)
     storage_state = str(state_file) if use_storage_state and state_file.exists() else None
+
+    # On Linux without display, use Xvfb or fall back to headless
+    if not headless and ensure_display(headless=False):
+        logger.warning("No display available, falling back to headless mode")
+        headless = True
 
     last_error: Optional[Exception] = None
     launched = False
